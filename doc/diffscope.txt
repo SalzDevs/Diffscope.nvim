@@ -1,4 +1,4 @@
-*diffscope.nvim*                  Live editable diff view for Neovim
+*diffscope.nvim*                  Diff viewer + editor for Neovim
 
 ==============================================================================
 CONTENTS                                                *diffscope-contents*
@@ -12,12 +12,13 @@ CONTENTS                                                *diffscope-contents*
 ==============================================================================
 INTRODUCTION                                        *diffscope-introduction*
 
-Diffscope.nvim opens a two-pane live diff for the current change. The left pane
-is a read-only base copy. The right pane is the real file buffer and is
-editable immediately.
+Diffscope.nvim opens the current change as a left viewer / right editor layout.
+The left pane is a read-only unified diff. The right pane is the regular
+editable file buffer.
 
-Added/new lines are shown with a green background. Removed/old lines are shown
-with a red background. The view uses Neovim's native |diffthis| engine.
+Added diff lines are shown with a green background. Removed diff lines are
+shown with a red background. The editor pane remains normal Neovim; edit and
+|:write| as usual.
 
 Diffscope intentionally exposes |:DiffScope| only. It does not install a
 `:Diff` alias.
@@ -26,18 +27,20 @@ Diffscope intentionally exposes |:DiffScope| only. It does not install a
 COMMANDS                                                *diffscope-commands*
 
 :DiffScope                                              *:DiffScope*
-        Open a live diff for the current file when possible. If the current
+        Open a diff viewer for the current file when possible. If the current
         buffer is not a Git file, Diffscope falls back to the first changed
         file in the repository.
 
 :DiffScope staged
-        Open the selected staged change against an editable worktree file.
+        Show the staged diff on the left while keeping the worktree file
+        editable on the right.
 
 :DiffScope %
-        Open a live diff for the current file.
+        Open a diff viewer for the current file.
 
 :DiffScope {left} {right}
-        Compare two files directly. The right file is editable.
+        Compare two files directly. The left pane shows the diff; the right
+        file is editable.
 
 ==============================================================================
 MAPPINGS                                                *diffscope-mappings*
@@ -45,7 +48,7 @@ MAPPINGS                                                *diffscope-mappings*
 Default normal-mode mappings inside Diffscope buffers:
 
                                                         *diffscope-mappings-q*
-q       Close diff mode and keep editing the file.
+q       Close the diff viewer.
 
                                                         *diffscope-mappings-help*
 ?       Toggle help.
@@ -67,7 +70,7 @@ Example: >lua
 
   require("diffscope").setup({
     layout = {
-      base_width = nil, -- nil keeps both code panes equal
+      base_width = nil, -- nil keeps viewer/editor panes equal
     },
     mappings = {
       close = "q",
@@ -83,14 +86,11 @@ Example: >lua
 ==============================================================================
 DESIGN NOTES                                            *diffscope-design*
 
-Diffscope opens directly into the code instead of a separate file-list review
-workflow. The right pane is the user's actual buffer, so editing and |:write|
-work normally. The left pane is a temporary read-only base buffer that closes
-when Diffscope closes.
+Diffscope does not open a separate review list or a second editable copy. The
+left pane is the actual diff, rendered read-only with full-line red/green
+backgrounds. The right pane is the user's file buffer.
 
-The diff view configures 'diffopt' with the internal histogram algorithm,
-indent heuristics, filler lines, line matching, and a very large context so all
-code remains visible instead of being folded away.
+The diff viewer refreshes after the editable buffer is written.
 
 ==============================================================================
 vim:tw=78:ts=8:noet:ft=help:norl:

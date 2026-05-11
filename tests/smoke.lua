@@ -1,4 +1,4 @@
-vim.opt.runtimepath:append(vim.fn.getcwd())
+vim.opt.runtimepath:prepend(vim.fn.getcwd())
 vim.cmd("runtime plugin/diffscope.lua")
 
 require("diffscope").setup({})

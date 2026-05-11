@@ -5,6 +5,7 @@ local groups = {
   DiffscopeRemoved = { bg = "#4a2024" },
   DiffscopeChanged = { bg = "#3f351f" },
   DiffscopeChangedText = { bg = "#66512a", bold = true },
+  DiffscopeHunk = { link = "DiffChange" },
   DiffscopeFileModified = { link = "DiagnosticWarn" },
   DiffscopeFileAdded = { link = "DiagnosticOk" },
   DiffscopeFileDeleted = { link = "DiagnosticError" },

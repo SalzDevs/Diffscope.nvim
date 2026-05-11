@@ -2,7 +2,7 @@ local M = {}
 
 M.defaults = {
   layout = {
-    -- nil keeps the two code panes equal; set a number to force the base pane width.
+    -- nil keeps the diff viewer and editor equal; set a number to force viewer width.
     base_width = nil,
   },
   mappings = {
