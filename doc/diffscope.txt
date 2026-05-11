@@ -1,4 +1,4 @@
-*diffscope.nvim*                  Diff viewer + editor for Neovim
+*diffscope.nvim*                  Read-only diff code view + editor
 
 ==============================================================================
 CONTENTS                                                *diffscope-contents*
@@ -13,12 +13,13 @@ CONTENTS                                                *diffscope-contents*
 INTRODUCTION                                        *diffscope-introduction*
 
 Diffscope.nvim opens the current change as a left viewer / right editor layout.
-The left pane is a read-only unified diff. The right pane is the regular
-editable file buffer.
+The left pane is a read-only generated code view with diff colors. The right
+pane is the regular editable file buffer.
 
-Added diff lines are shown with a green background. Removed diff lines are
-shown with a red background. The editor pane remains normal Neovim; edit and
-|:write| as usual.
+The left pane is intentionally not raw unified diff text. It has no @@ headers
+and no +/- body prefixes. It looks like code: removed lines are inserted in
+place and highlighted red, added lines are highlighted green, and unchanged
+lines are shown normally.
 
 Diffscope intentionally exposes |:DiffScope| only. It does not install a
 `:Diff` alias.
@@ -27,20 +28,20 @@ Diffscope intentionally exposes |:DiffScope| only. It does not install a
 COMMANDS                                                *diffscope-commands*
 
 :DiffScope                                              *:DiffScope*
-        Open a diff viewer for the current file when possible. If the current
-        buffer is not a Git file, Diffscope falls back to the first changed
-        file in the repository.
+        Open a diff code view for the current file when possible. If the
+        current buffer is not a Git file, Diffscope falls back to the first
+        changed file in the repository.
 
 :DiffScope staged
-        Show the staged diff on the left while keeping the worktree file
-        editable on the right.
+        Show staged changes in the left read-only code view while keeping the
+        worktree file editable on the right.
 
 :DiffScope %
-        Open a diff viewer for the current file.
+        Open a diff code view for the current file.
 
 :DiffScope {left} {right}
-        Compare two files directly. The left pane shows the diff; the right
-        file is editable.
+        Compare two files directly. The left pane is the read-only diff code
+        view; the right file is editable.
 
 ==============================================================================
 MAPPINGS                                                *diffscope-mappings*
@@ -86,13 +87,11 @@ Example: >lua
 ==============================================================================
 DESIGN NOTES                                            *diffscope-design*
 
-Diffscope does not open a separate review list or a second editable copy. The
-left pane is the actual diff, rendered read-only with full-line red/green
-backgrounds. The right pane is the user's file buffer.
+Diffscope does not open a separate review list or a raw diff buffer. The left
+pane should feel like a normal read-only code buffer with diff colors. The
+right pane is the user's real file buffer.
 
-The diff viewer refreshes after the editable buffer is written. Diff body
-markers are hidden, so removed/added code is distinguished by background color
-instead of leading -/+ characters.
+The left pane refreshes after the editable buffer is written.
 
 ==============================================================================
 vim:tw=78:ts=8:noet:ft=help:norl:

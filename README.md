@@ -1,8 +1,8 @@
 # Diffscope.nvim
 
-A diff viewer + editor layout for Neovim.
+A read-only diff code view + regular editor layout for Neovim.
 
-Diffscope opens the current change with a read-only diff viewer on the left and a regular editable Neovim buffer on the right. The left pane shows the actual unified diff with removed lines on a red background and added lines on a green background. The right pane is the current file exactly as you normally edit it.
+Diffscope opens the current change with two code panes: the left pane is a read-only generated view of the file with diff colors, and the right pane is the regular editable Neovim buffer. The left pane looks like code, not raw unified diff output: no `@@` headers, no `+`/`-` prefixes, just code with removed lines inserted in place and highlighted red, and added lines highlighted green.
 
 ## Status
 
@@ -31,37 +31,38 @@ Using `lazy.nvim`:
 :DiffScope
 ```
 
-Opens a diff viewer for the current file when possible. If the current buffer is not a Git file, Diffscope falls back to the first changed file in the repository.
+Opens a diff code view for the current file when possible. If the current buffer is not a Git file, Diffscope falls back to the first changed file in the repository.
 
 ```vim
 :DiffScope staged
 ```
 
-Shows the staged diff on the left while keeping the worktree file editable on the right.
+Shows staged changes in the left read-only code view while keeping the worktree file editable on the right.
 
 ```vim
 :DiffScope %
 ```
 
-Opens a diff viewer for the current file.
+Opens a diff code view for the current file.
 
 ```vim
 :DiffScope file_a.lua file_b.lua
 ```
 
-Compares two files directly. The left pane shows the diff; the right file is editable.
+Compares two files directly. The left pane is the read-only diff code view; the right file is editable.
 
 ## UI model
 
 ```text
 ┌──────────────────────────────┬──────────────────────────────┐
-│ Diff viewer / read-only      │ Regular Neovim editor        │
-│ - removed lines: red bg      │ current file                 │
-│ + added lines: green bg      │ edit/write normally          │
+│ Read-only diff code view     │ Regular Neovim editor        │
+│ same code shape as editor    │ current file                 │
+│ removed lines: red bg        │ edit/write normally          │
+│ added lines: green bg        │                              │
 └──────────────────────────────┴──────────────────────────────┘
 ```
 
-The right pane is not a preview buffer. It is the actual file, so normal edits and `:write` work as expected. The diff viewer refreshes after writes. Diff body markers are hidden, so removed/added code is distinguished by background color instead of leading `-`/`+` characters.
+The right pane is not a preview buffer. It is the actual file, so normal edits and `:write` work as expected. The left pane refreshes after writes.
 
 ## Default mappings
 
@@ -75,9 +76,9 @@ The right pane is not a preview buffer. It is the actual file, so normal edits a
 
 ## Design goals
 
-- Left pane is an actual diff, not a second editable buffer.
+- Left pane should feel like a normal read-only code buffer, not raw diff text.
 - Right pane remains a normal Neovim editing experience.
-- Use full-line red/green backgrounds for removed/added diff lines.
+- Use full-line red/green backgrounds for removed/added code.
 - Keep the command simple: `:DiffScope`.
 - No command-line alias is installed for `:Diff`; use `:DiffScope`.
 
