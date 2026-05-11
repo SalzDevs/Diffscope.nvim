@@ -14,9 +14,10 @@ local function normalize_path(path)
 end
 
 function M.root(start)
-  start = normalize_path(start or vim.api.nvim_buf_get_name(0)) or vim.uv.cwd()
+  local loop = vim.uv or vim.loop
+  start = normalize_path(start or vim.api.nvim_buf_get_name(0)) or loop.cwd()
   local dir = vim.fn.isdirectory(start) == 1 and start or vim.fs.dirname(start)
-  local ok, output = systemlist({ "git", "-C", dir, "rev-parse", "--show-toplevel" })
+  local ok, output = systemlist({ "git", "-C", dir or loop.cwd(), "rev-parse", "--show-toplevel" })
   if not ok or not output[1] or output[1] == "" then
     return nil
   end

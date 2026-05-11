@@ -1,10 +1,12 @@
 local config = require("diffscope.config")
 local git = require("diffscope.git")
+local highlights = require("diffscope.highlights")
 local source = require("diffscope.source")
 
 local M = {}
 
 local state = nil
+local namespace = vim.api.nvim_create_namespace("diffscope")
 
 local function notify(message, level)
   vim.notify(message, level or vim.log.levels.INFO, { title = "Diffscope" })
@@ -81,6 +83,14 @@ local function render_file_list()
   end
 
   set_lines(state.file_buf, lines)
+  vim.api.nvim_buf_clear_namespace(state.file_buf, namespace, 0, -1)
+
+  for index, file in ipairs(state.source.files) do
+    vim.api.nvim_buf_set_extmark(state.file_buf, namespace, index - 1, 0, {
+      end_col = 2,
+      hl_group = highlights.status_group(file.status),
+    })
+  end
 end
 
 local function help_lines()
@@ -153,7 +163,9 @@ function M.preview()
     vim.api.nvim_set_current_win(state.diff_win)
   end
 
+  state.view = "unified"
   vim.wo[state.diff_win].diff = false
+  vim.wo[state.diff_win].winbar = " Diffscope unified diff: " .. file.path
   vim.bo[state.diff_buf].filetype = "diff"
   set_lines(state.diff_buf, preview_lines_for(file))
 end
@@ -233,10 +245,13 @@ function M.open_split()
   vim.api.nvim_win_set_buf(right_win, right_buf)
 
   vim.api.nvim_set_current_win(left_win)
+  vim.wo[left_win].winbar = " Base: " .. file.path
   vim.cmd("diffthis")
   vim.api.nvim_set_current_win(right_win)
+  vim.wo[right_win].winbar = " Current: " .. file.path
   vim.cmd("diffthis")
 
+  state.view = "split"
   state.diff_win = right_win
   state.diff_buf = right_buf
 
@@ -244,6 +259,10 @@ function M.open_split()
   map(right_buf, config.options.mappings.close, M.close, "Close Diffscope")
   map(left_buf, config.options.mappings.help, M.toggle_help, "Diffscope help")
   map(right_buf, config.options.mappings.help, M.toggle_help, "Diffscope help")
+  map(left_buf, config.options.mappings.next_hunk, M.next_hunk, "Next hunk")
+  map(right_buf, config.options.mappings.next_hunk, M.next_hunk, "Next hunk")
+  map(left_buf, config.options.mappings.prev_hunk, M.prev_hunk, "Previous hunk")
+  map(right_buf, config.options.mappings.prev_hunk, M.prev_hunk, "Previous hunk")
 end
 
 local function refresh_source()
@@ -362,6 +381,8 @@ function M.close()
 end
 
 function M.open(args)
+  highlights.setup()
+
   if state then
     M.close()
   end
@@ -388,6 +409,9 @@ function M.open(args)
   vim.wo[file_win].relativenumber = false
   vim.wo[file_win].signcolumn = "no"
   vim.wo[file_win].winfixwidth = true
+  vim.wo[file_win].cursorline = true
+  vim.wo[file_win].winbar = " Diffscope: " .. diff_source.title
+  vim.wo[diff_win].winbar = " Diffscope unified diff"
 
   state = {
     args = args or {},
@@ -398,6 +422,7 @@ function M.open(args)
     file_buf = file_buf,
     diff_win = diff_win,
     diff_buf = diff_buf,
+    view = "unified",
   }
 
   setup_mappings(file_buf)
