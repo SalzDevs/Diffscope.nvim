@@ -90,7 +90,9 @@ Diffscope does not open a separate review list or a second editable copy. The
 left pane is the actual diff, rendered read-only with full-line red/green
 backgrounds. The right pane is the user's file buffer.
 
-The diff viewer refreshes after the editable buffer is written.
+The diff viewer refreshes after the editable buffer is written. Diff body
+markers are hidden, so removed/added code is distinguished by background color
+instead of leading -/+ characters.
 
 ==============================================================================
 vim:tw=78:ts=8:noet:ft=help:norl:

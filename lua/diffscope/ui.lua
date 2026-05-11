@@ -119,6 +119,37 @@ local function diff_lines_for(diff_source, file)
   return lines
 end
 
+local function render_diff_lines(raw_lines)
+  local rendered = {}
+  local kinds = {}
+  local in_hunk = false
+
+  for index, line in ipairs(raw_lines) do
+    local kind = nil
+    local text = line
+
+    if line:match("^@@") then
+      in_hunk = true
+      kind = "hunk"
+    elseif in_hunk and line:sub(1, 1) == "+" then
+      kind = "added"
+      text = line:sub(2)
+    elseif in_hunk and line:sub(1, 1) == "-" then
+      kind = "removed"
+      text = line:sub(2)
+    elseif in_hunk and line:sub(1, 1) == " " then
+      text = line:sub(2)
+    elseif line:match("^diff %-%-git") then
+      in_hunk = false
+    end
+
+    rendered[index] = text
+    kinds[index] = kind or "context"
+  end
+
+  return rendered, kinds
+end
+
 local function parse_hunks(lines)
   local hunks = {}
 
@@ -138,21 +169,21 @@ local function parse_hunks(lines)
   return hunks
 end
 
-local function highlight_diff(buf, lines)
+local function highlight_diff(buf, kinds)
   if not valid_buf(buf) then
     return
   end
 
   vim.api.nvim_buf_clear_namespace(buf, namespace, 0, -1)
 
-  for index, line in ipairs(lines) do
+  for index, kind in ipairs(kinds) do
     local group = nil
 
-    if line:match("^@@") then
+    if kind == "hunk" then
       group = "DiffscopeHunk"
-    elseif line:sub(1, 1) == "+" and not line:match("^%+%+%+") then
+    elseif kind == "added" then
       group = "DiffscopeAdded"
-    elseif line:sub(1, 1) == "-" and not line:match("^%-%-%-") then
+    elseif kind == "removed" then
       group = "DiffscopeRemoved"
     end
 
@@ -169,10 +200,11 @@ local function refresh_diff()
     return
   end
 
-  local lines = diff_lines_for(state.source, state.file)
-  state.hunks = parse_hunks(lines)
-  set_lines(state.viewer_buf, lines)
-  highlight_diff(state.viewer_buf, lines)
+  local raw_lines = diff_lines_for(state.source, state.file)
+  local rendered_lines, line_kinds = render_diff_lines(raw_lines)
+  state.hunks = parse_hunks(raw_lines)
+  set_lines(state.viewer_buf, rendered_lines)
+  highlight_diff(state.viewer_buf, line_kinds)
 end
 
 local function tune_viewer_window(win, label)
@@ -443,14 +475,15 @@ function M.open(args)
   end
 
   local edit_path, edit_label = edit_path_for(diff_source, file)
-  local diff_lines = diff_lines_for(diff_source, file)
+  local raw_diff_lines = diff_lines_for(diff_source, file)
+  local diff_lines, line_kinds = render_diff_lines(raw_diff_lines)
 
   state = {
     args = args or {},
     source = diff_source,
     file = file,
     previous_win = vim.api.nvim_get_current_win(),
-    hunks = parse_hunks(diff_lines),
+    hunks = parse_hunks(raw_diff_lines),
     mapped_buffers = {},
   }
 
@@ -474,7 +507,7 @@ function M.open(args)
   state.edit_buf = edit_buf
 
   tune_viewer_window(viewer_win, edit_label)
-  highlight_diff(viewer_buf, diff_lines)
+  highlight_diff(viewer_buf, line_kinds)
   setup_mappings(viewer_buf)
   setup_mappings(edit_buf)
 

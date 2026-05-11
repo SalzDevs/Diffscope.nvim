@@ -61,7 +61,7 @@ Compares two files directly. The left pane shows the diff; the right file is edi
 └──────────────────────────────┴──────────────────────────────┘
 ```
 
-The right pane is not a preview buffer. It is the actual file, so normal edits and `:write` work as expected. The diff viewer refreshes after writes.
+The right pane is not a preview buffer. It is the actual file, so normal edits and `:write` work as expected. The diff viewer refreshes after writes. Diff body markers are hidden, so removed/added code is distinguished by background color instead of leading `-`/`+` characters.
 
 ## Default mappings
 
