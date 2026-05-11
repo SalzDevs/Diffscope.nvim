@@ -11,8 +11,11 @@ vim.fn.system({ "git", "-C", tmp, "init" })
 assert(vim.v.shell_error == 0, "git init should succeed")
 
 vim.fn.writefile({ "hello", "diffscope" }, tmp .. "/sample.txt")
+vim.fn.writefile({ "another", "change" }, tmp .. "/another.txt")
 vim.cmd("cd " .. vim.fn.fnameescape(tmp))
 vim.cmd("DiffScope")
+require("diffscope").next_file()
+require("diffscope").prev_file()
 require("diffscope").close()
 
 vim.fn.delete(tmp, "rf")

@@ -31,7 +31,7 @@ Using `lazy.nvim`:
 :DiffScope
 ```
 
-Opens a diff code view for the current file when possible. If the current buffer is not a Git file, Diffscope falls back to the first changed file in the repository.
+Opens a dedicated Diffscope tab for the changed files in the repository. If the current file has changes, it is selected first; otherwise Diffscope opens the first changed file.
 
 ```vim
 :DiffScope staged
@@ -62,12 +62,14 @@ Compares two files directly. The left pane is the read-only diff code view; the 
 └──────────────────────────────┴──────────────────────────────┘
 ```
 
-The right pane is not a preview buffer. It is the actual file, so normal edits and `:write` work as expected. The left pane refreshes after writes.
+The right pane is not a preview buffer. It is the actual file, so normal edits and `:write` work as expected. The left pane refreshes after writes. Diffscope owns its review tab, so it does not depend on external file explorers.
 
 ## Default mappings
 
 | Key | Action |
 | --- | --- |
+| `f` | Open changed-files picker |
+| `]f` / `[f` | Next / previous changed file |
 | `]c` / `[c` | Next / previous diff hunk |
 | `s` | Write and stage the current file |
 | `r` | Reset current file, with confirmation |
@@ -78,6 +80,7 @@ The right pane is not a preview buffer. It is the actual file, so normal edits a
 
 - Left pane should feel like a normal read-only code buffer, not raw diff text.
 - Right pane remains a normal Neovim editing experience.
+- Changed-file navigation should be built into Diffscope, not delegated to a file explorer.
 - Use full-line red/green backgrounds for removed/added code.
 - Keep the command simple: `:DiffScope`.
 - No command-line alias is installed for `:Diff`; use `:DiffScope`.
@@ -88,6 +91,13 @@ The right pane is not a preview buffer. It is the actual file, so normal edits a
 require("diffscope").setup({
   layout = {
     base_width = nil, -- nil keeps viewer/editor panes equal
+  },
+  mappings = {
+    files = "f",
+    next_file = "]f",
+    prev_file = "[f",
+    next_hunk = "]c",
+    prev_hunk = "[c",
   },
 })
 ```

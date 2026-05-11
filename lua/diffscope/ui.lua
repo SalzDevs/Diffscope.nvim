@@ -45,22 +45,10 @@ local function create_diff_viewer(name, lines, filetype)
 end
 
 local function resolve_source(args)
-  args = args or {}
-
-  if #args == 0 then
-    local current = vim.api.nvim_buf_get_name(0)
-    if current ~= "" and git.root(current) then
-      local current_source = source.from_args({ "%" })
-      if current_source then
-        return current_source
-      end
-    end
-  end
-
-  return source.from_args(args)
+  return source.from_args(args or {})
 end
 
-local function choose_file(diff_source)
+local function choose_file_index(diff_source)
   if not diff_source or #diff_source.files == 0 then
     return nil
   end
@@ -69,15 +57,30 @@ local function choose_file(diff_source)
     local current = vim.api.nvim_buf_get_name(0)
     local rel = git.relative(diff_source.root, current)
     if rel then
-      for _, file in ipairs(diff_source.files) do
+      for index, file in ipairs(diff_source.files) do
         if file.path == rel then
-          return file
+          return index
         end
       end
     end
   end
 
-  return diff_source.files[1]
+  return 1
+end
+
+local function status_label(file)
+  local status = file.status or " "
+  if status == "?" then
+    return "??"
+  end
+  if #status == 1 then
+    return " " .. status
+  end
+  return status:sub(1, 2)
+end
+
+local function file_label(file)
+  return string.format("%s  %s", status_label(file), file.path)
 end
 
 local function edit_path_for(diff_source, file)
@@ -286,6 +289,8 @@ local function help_lines()
     "Green background  added/new lines",
     "Red background    removed/old lines",
     "",
+    "f                changed files picker",
+    "]f / [f          next / previous changed file",
     "]c / [c          next / previous hunk",
     "s                write and stage this file",
     "r                reset this file, with confirmation",
@@ -455,8 +460,169 @@ local function setup_mappings(buf)
   map(buf, mappings.help, M.toggle_help, "Diffscope help")
   map(buf, mappings.next_hunk, M.next_hunk, "Next hunk")
   map(buf, mappings.prev_hunk, M.prev_hunk, "Previous hunk")
+  map(buf, mappings.files, M.open_file_picker, "Diffscope changed files")
+  map(buf, mappings.next_file, M.next_file, "Next changed file")
+  map(buf, mappings.prev_file, M.prev_file, "Previous changed file")
   map(buf, mappings.stage_file, M.stage_file, "Stage current file")
   map(buf, mappings.reset_file, M.reset_file, "Reset current file")
+end
+
+local function install_write_autocmd()
+  if state.autocmd then
+    pcall(vim.api.nvim_del_autocmd, state.autocmd)
+    state.autocmd = nil
+  end
+
+  state.autocmd = vim.api.nvim_create_autocmd("BufWritePost", {
+    buffer = state.edit_buf,
+    callback = function()
+      refresh_diff()
+    end,
+    desc = "Refresh Diffscope diff viewer after write",
+  })
+end
+
+local function close_picker()
+  if state and valid_win(state.picker_win) then
+    pcall(vim.api.nvim_win_close, state.picker_win, true)
+  end
+  if state then
+    state.picker_win = nil
+    state.picker_buf = nil
+  end
+end
+
+local function prepare_file_switch()
+  if not state or not valid_buf(state.edit_buf) or not vim.bo[state.edit_buf].modified then
+    return true
+  end
+
+  local answer = vim.fn.confirm("Save changes before switching files?", "&Write\n&Discard\n&Cancel", 1)
+  if answer == 1 then
+    vim.api.nvim_buf_call(state.edit_buf, function()
+      vim.cmd("write")
+    end)
+    return true
+  elseif answer == 2 then
+    vim.api.nvim_buf_call(state.edit_buf, function()
+      vim.cmd("edit!")
+    end)
+    return true
+  end
+
+  return false
+end
+
+function M.open_file(index)
+  if not state or not index or not state.files[index] then
+    return
+  end
+
+  if index == state.file_index then
+    if valid_win(state.edit_win) then
+      vim.api.nvim_set_current_win(state.edit_win)
+    end
+    return
+  end
+
+  if not prepare_file_switch() then
+    return
+  end
+
+  close_picker()
+
+  if valid_win(state.edit_win) then
+    vim.api.nvim_set_current_win(state.edit_win)
+  end
+
+  state.file_index = index
+  state.file = state.files[index]
+
+  local edit_path, edit_label = edit_path_for(state.source, state.file)
+  local edit_buf = open_edit_buffer(edit_path)
+
+  state.edit_buf = edit_buf
+  state.edit_win = vim.api.nvim_get_current_win()
+
+  vim.bo[state.viewer_buf].filetype = vim.bo[edit_buf].filetype
+  vim.api.nvim_buf_set_name(state.viewer_buf, "Diffscope://diff/" .. edit_label)
+  tune_viewer_window(state.viewer_win, state.edit_win, edit_label)
+  setup_mappings(edit_buf)
+  install_write_autocmd()
+  refresh_diff()
+
+  if valid_win(state.edit_win) then
+    vim.api.nvim_set_current_win(state.edit_win)
+  end
+
+  notify(string.format("Diffscope file %d/%d: %s", state.file_index, #state.files, edit_label))
+end
+
+function M.next_file()
+  if not state or not state.files or #state.files == 0 then
+    return
+  end
+
+  local next_index = state.file_index + 1
+  if next_index > #state.files then
+    next_index = 1
+  end
+  M.open_file(next_index)
+end
+
+function M.prev_file()
+  if not state or not state.files or #state.files == 0 then
+    return
+  end
+
+  local prev_index = state.file_index - 1
+  if prev_index < 1 then
+    prev_index = #state.files
+  end
+  M.open_file(prev_index)
+end
+
+function M.open_file_picker()
+  if not state or not state.files then
+    return
+  end
+
+  if valid_win(state.picker_win) then
+    close_picker()
+    return
+  end
+
+  local lines = {}
+  for index, file in ipairs(state.files) do
+    local prefix = index == state.file_index and "➜ " or "  "
+    table.insert(lines, prefix .. file_label(file))
+  end
+
+  local buf = create_diff_viewer("Diffscope://files", lines, "")
+  local width = math.min(70, math.max(36, math.floor(vim.o.columns * 0.45)))
+  local height = math.min(math.max(#lines, 1), math.max(1, vim.o.lines - 8))
+
+  state.picker_buf = buf
+  state.picker_win = vim.api.nvim_open_win(buf, true, {
+    relative = "editor",
+    width = width,
+    height = height,
+    row = math.max(0, math.floor((vim.o.lines - height) / 2) - 1),
+    col = math.max(0, math.floor((vim.o.columns - width) / 2)),
+    style = "minimal",
+    border = "rounded",
+    title = " Changed files ",
+    title_pos = "center",
+  })
+
+  vim.wo[state.picker_win].cursorline = true
+  vim.api.nvim_win_set_cursor(state.picker_win, { state.file_index, 0 })
+  vim.keymap.set("n", "q", close_picker, { buffer = buf, silent = true, nowait = true })
+  vim.keymap.set("n", "<Esc>", close_picker, { buffer = buf, silent = true, nowait = true })
+  vim.keymap.set("n", "<CR>", function()
+    local selected = vim.api.nvim_win_get_cursor(state.picker_win)[1]
+    M.open_file(selected)
+  end, { buffer = buf, silent = true, nowait = true })
 end
 
 function M.close()
@@ -475,12 +641,29 @@ function M.close()
     pcall(vim.api.nvim_win_close, old_state.help_win, true)
   end
 
-  if valid_win(old_state.viewer_win) then
-    pcall(vim.api.nvim_win_close, old_state.viewer_win, true)
+  if valid_win(old_state.picker_win) then
+    pcall(vim.api.nvim_win_close, old_state.picker_win, true)
   end
 
-  if valid_win(old_state.edit_win) then
-    vim.api.nvim_set_current_win(old_state.edit_win)
+  local can_close_tab = old_state.tab
+    and vim.api.nvim_tabpage_is_valid(old_state.tab)
+    and #vim.api.nvim_list_tabpages() > 1
+    and (not valid_buf(old_state.edit_buf) or not vim.bo[old_state.edit_buf].modified)
+
+  if can_close_tab then
+    vim.api.nvim_set_current_tabpage(old_state.tab)
+    pcall(vim.cmd, "tabclose")
+    if old_state.previous_tab and vim.api.nvim_tabpage_is_valid(old_state.previous_tab) then
+      vim.api.nvim_set_current_tabpage(old_state.previous_tab)
+    end
+  else
+    if valid_win(old_state.viewer_win) then
+      pcall(vim.api.nvim_win_close, old_state.viewer_win, true)
+    end
+
+    if valid_win(old_state.edit_win) then
+      vim.api.nvim_set_current_win(old_state.edit_win)
+    end
   end
 
   state = nil
@@ -499,19 +682,27 @@ function M.open(args)
     return
   end
 
-  local file = choose_file(diff_source)
-  if not file then
+  local file_index = choose_file_index(diff_source)
+  if not file_index then
     notify("No file available to diff", vim.log.levels.INFO)
     return
   end
 
+  local file = diff_source.files[file_index]
   local edit_path, edit_label = edit_path_for(diff_source, file)
+  local previous_tab = vim.api.nvim_get_current_tabpage()
+
+  vim.cmd("tabnew")
+  local tab = vim.api.nvim_get_current_tabpage()
 
   state = {
     args = args or {},
     source = diff_source,
+    files = diff_source.files,
+    file_index = file_index,
     file = file,
-    previous_win = vim.api.nvim_get_current_win(),
+    previous_tab = previous_tab,
+    tab = tab,
     hunks = {},
     mapped_buffers = {},
   }
@@ -543,13 +734,7 @@ function M.open(args)
   setup_mappings(viewer_buf)
   setup_mappings(edit_buf)
 
-  state.autocmd = vim.api.nvim_create_autocmd("BufWritePost", {
-    buffer = edit_buf,
-    callback = function()
-      refresh_diff()
-    end,
-    desc = "Refresh Diffscope diff viewer after write",
-  })
+  install_write_autocmd()
 
   vim.api.nvim_set_current_win(edit_win)
   notify("Diff viewer opened for " .. edit_label)
