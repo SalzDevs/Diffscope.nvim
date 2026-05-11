@@ -519,6 +519,7 @@ function M.open_file(index)
   end
 
   if index == state.file_index then
+    close_picker()
     if valid_win(state.edit_win) then
       vim.api.nvim_set_current_win(state.edit_win)
     end
