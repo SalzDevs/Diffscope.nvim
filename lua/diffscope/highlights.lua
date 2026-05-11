@@ -1,6 +1,10 @@
 local M = {}
 
 local groups = {
+  DiffscopeAdded = { bg = "#1f3d2b" },
+  DiffscopeRemoved = { bg = "#4a2024" },
+  DiffscopeChanged = { bg = "#3f351f" },
+  DiffscopeChangedText = { bg = "#66512a", bold = true },
   DiffscopeFileModified = { link = "DiagnosticWarn" },
   DiffscopeFileAdded = { link = "DiagnosticOk" },
   DiffscopeFileDeleted = { link = "DiagnosticError" },

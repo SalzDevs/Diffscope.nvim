@@ -1,8 +1,8 @@
 # Diffscope.nvim
 
-A focused diff review workspace for Neovim.
+A live, editable diff view for Neovim.
 
-Diffscope turns a tab into a clean review surface with a changed-file list, a unified diff preview, and native side-by-side diff mode powered by Neovim's built-in diff engine.
+Diffscope opens the current change as a two-pane diff: the left pane is the read-only base version, and the right pane is the real file buffer. You edit the new code directly while Neovim's native diff engine highlights additions, removals, and changed lines.
 
 ## Status
 
@@ -31,45 +31,54 @@ Using `lazy.nvim`:
 :DiffScope
 ```
 
-Opens the current Git working tree in a dedicated diff workspace.
+Opens a live diff for the current file when possible. If the current buffer is not a Git file, Diffscope falls back to the first changed file in the repository.
 
 ```vim
 :DiffScope staged
 ```
 
-Reviews staged changes.
+Opens the selected staged change against an editable worktree file.
 
 ```vim
 :DiffScope %
 ```
 
-Reviews the current file.
+Opens a live diff for the current file.
 
 ```vim
 :DiffScope file_a.lua file_b.lua
 ```
 
-Compares two files directly.
+Compares two files directly. The right file is editable.
+
+## UI model
+
+```text
+┌──────────────────────────────┬──────────────────────────────┐
+│ Before / read-only           │ Now / edit this file          │
+│ red removed/old lines        │ green added/new lines         │
+│                              │ cursor starts here            │
+└──────────────────────────────┴──────────────────────────────┘
+```
+
+The right pane is not a preview buffer. It is the actual file, so normal edits and `:write` work as expected.
 
 ## Default mappings
 
 | Key | Action |
 | --- | --- |
-| `j` / `k` | Move in the file list |
-| `<CR>` | Open selected file in side-by-side diff mode |
-| `p` | Preview selected file as unified diff |
 | `]c` / `[c` | Next / previous diff hunk |
-| `s` | Stage selected file |
-| `r` | Reset selected file, with confirmation |
+| `s` | Write and stage the current file |
+| `r` | Reset current file, with confirmation |
 | `?` | Toggle help |
-| `q` | Close Diffscope |
+| `q` | Close diff mode and keep editing the file |
 
 ## Design goals
 
-- One command should open a useful review mode.
-- The user's original window layout should be preserved.
-- Native Neovim diff should be reused where it is strongest.
-- Git actions should be explicit and safe.
+- Open directly into the code, not a separate file-list workflow.
+- Make the editable side obvious: right pane = real file.
+- Use full-line red/green backgrounds for removed/added code.
+- Reuse Neovim's native diff engine.
 - No command-line alias is installed for `:Diff`; use `:DiffScope`.
 
 ## Configuration
@@ -77,10 +86,7 @@ Compares two files directly.
 ```lua
 require("diffscope").setup({
   layout = {
-    file_panel_width = 32,
-  },
-  view = {
-    default = "unified", -- "unified" or "split"
+    base_width = nil, -- nil keeps both code panes equal
   },
 })
 ```

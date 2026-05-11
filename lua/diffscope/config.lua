@@ -2,16 +2,12 @@ local M = {}
 
 M.defaults = {
   layout = {
-    file_panel_width = 32,
-  },
-  view = {
-    default = "unified",
+    -- nil keeps the two code panes equal; set a number to force the base pane width.
+    base_width = nil,
   },
   mappings = {
     close = "q",
     help = "?",
-    preview = "p",
-    open_split = "<CR>",
     next_hunk = "]c",
     prev_hunk = "[c",
     stage_file = "s",

@@ -1,4 +1,4 @@
-*diffscope.nvim*              Focused diff review workspace for Neovim
+*diffscope.nvim*                  Live editable diff view for Neovim
 
 ==============================================================================
 CONTENTS                                                *diffscope-contents*
@@ -12,10 +12,12 @@ CONTENTS                                                *diffscope-contents*
 ==============================================================================
 INTRODUCTION                                        *diffscope-introduction*
 
-Diffscope.nvim opens a dedicated tab for reviewing diffs. It provides a file
-list on the left and a diff surface on the right. Unified previews use a
-scratch buffer with 'filetype' set to "diff". Side-by-side views use Neovim's
-native |diffthis| engine.
+Diffscope.nvim opens a two-pane live diff for the current change. The left pane
+is a read-only base copy. The right pane is the real file buffer and is
+editable immediately.
+
+Added/new lines are shown with a green background. Removed/old lines are shown
+with a red background. The view uses Neovim's native |diffthis| engine.
 
 Diffscope intentionally exposes |:DiffScope| only. It does not install a
 `:Diff` alias.
@@ -24,16 +26,18 @@ Diffscope intentionally exposes |:DiffScope| only. It does not install a
 COMMANDS                                                *diffscope-commands*
 
 :DiffScope                                              *:DiffScope*
-        Open the current Git working tree in a diff workspace.
+        Open a live diff for the current file when possible. If the current
+        buffer is not a Git file, Diffscope falls back to the first changed
+        file in the repository.
 
 :DiffScope staged
-        Open staged Git changes.
+        Open the selected staged change against an editable worktree file.
 
 :DiffScope %
-        Open the current file.
+        Open a live diff for the current file.
 
 :DiffScope {left} {right}
-        Compare two files directly.
+        Compare two files directly. The right file is editable.
 
 ==============================================================================
 MAPPINGS                                                *diffscope-mappings*
@@ -41,26 +45,20 @@ MAPPINGS                                                *diffscope-mappings*
 Default normal-mode mappings inside Diffscope buffers:
 
                                                         *diffscope-mappings-q*
-q       Close Diffscope and return to the previous tab.
+q       Close diff mode and keep editing the file.
 
                                                         *diffscope-mappings-help*
 ?       Toggle help.
-
-                                                        *diffscope-mappings-preview*
-p       Preview the selected file as a unified diff.
-
-                                                        *diffscope-mappings-open*
-<CR>    Open the selected file in native side-by-side diff mode.
 
                                                         *diffscope-mappings-hunks*
 ]c      Jump to the next hunk.
 [c      Jump to the previous hunk.
 
                                                         *diffscope-mappings-stage*
-s       Stage the selected file.
+s       Write and stage the current file.
 
                                                         *diffscope-mappings-reset*
-r       Reset the selected file after confirmation.
+r       Reset the current file after confirmation.
 
 ==============================================================================
 CONFIGURATION                                      *diffscope-configuration*
@@ -69,16 +67,11 @@ Example: >lua
 
   require("diffscope").setup({
     layout = {
-      file_panel_width = 32,
-    },
-    view = {
-      default = "unified", -- or "split"
+      base_width = nil, -- nil keeps both code panes equal
     },
     mappings = {
       close = "q",
       help = "?",
-      preview = "p",
-      open_split = "<CR>",
       next_hunk = "]c",
       prev_hunk = "[c",
       stage_file = "s",
@@ -90,13 +83,14 @@ Example: >lua
 ==============================================================================
 DESIGN NOTES                                            *diffscope-design*
 
-Diff review is treated as a focused task. Diffscope opens a tab-local
-workspace so the user's existing window layout is preserved. `q` closes the
-workspace and returns to the previous tab.
+Diffscope opens directly into the code instead of a separate file-list review
+workflow. The right pane is the user's actual buffer, so editing and |:write|
+work normally. The left pane is a temporary read-only base buffer that closes
+when Diffscope closes.
 
-Side-by-side views lean on Neovim's native diff engine and configure 'diffopt'
-with the internal histogram algorithm, indent heuristics, filler lines, and
-line matching.
+The diff view configures 'diffopt' with the internal histogram algorithm,
+indent heuristics, filler lines, line matching, and a very large context so all
+code remains visible instead of being folded away.
 
 ==============================================================================
 vim:tw=78:ts=8:noet:ft=help:norl:

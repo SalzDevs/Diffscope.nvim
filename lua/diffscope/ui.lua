@@ -6,7 +6,6 @@ local source = require("diffscope.source")
 local M = {}
 
 local state = nil
-local namespace = vim.api.nvim_create_namespace("diffscope")
 
 local function notify(message, level)
   vim.notify(message, level or vim.log.levels.INFO, { title = "Diffscope" })
@@ -20,91 +19,181 @@ local function valid_buf(buf)
   return buf and vim.api.nvim_buf_is_valid(buf)
 end
 
-local function create_scratch(name, filetype)
+local function create_base_buffer(name, lines, filetype)
   local buf = vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_buf_set_name(buf, name)
   vim.bo[buf].buftype = "nofile"
   vim.bo[buf].bufhidden = "wipe"
   vim.bo[buf].swapfile = false
-  vim.bo[buf].modifiable = true
   vim.bo[buf].filetype = filetype or ""
-  vim.api.nvim_buf_set_name(buf, name)
-  return buf
-end
-
-local function set_lines(buf, lines)
-  if not valid_buf(buf) then
-    return
-  end
   vim.bo[buf].modifiable = true
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
   vim.bo[buf].modifiable = false
+  vim.bo[buf].readonly = true
+  return buf
 end
 
-local function map(buf, lhs, rhs, desc)
-  vim.keymap.set("n", lhs, rhs, { buffer = buf, silent = true, nowait = true, desc = desc })
+local function filetype_for(path)
+  return vim.filetype.match({ filename = path }) or ""
 end
 
-local function selected_file()
-  if not state or not valid_win(state.file_win) then
-    return nil
+local function readfile_or_empty(path)
+  if vim.fn.filereadable(path) == 1 then
+    return vim.fn.readfile(path)
   end
-
-  if #state.source.files == 0 then
-    return nil
-  end
-
-  local line = vim.api.nvim_win_get_cursor(state.file_win)[1]
-  return state.source.files[line]
+  return { "" }
 end
 
-local function status_label(file)
-  local status = file.status or " "
-  if status == "?" then
-    return "??"
-  end
-  if #status == 1 then
-    return " " .. status
-  end
-  return status:sub(1, 2)
-end
+local function resolve_source(args)
+  args = args or {}
 
-local function render_file_list()
-  if not state or not valid_buf(state.file_buf) then
-    return
-  end
-
-  local lines = {}
-  if #state.source.files == 0 then
-    lines = { " No changes", "", " Press q to close" }
-  else
-    for _, file in ipairs(state.source.files) do
-      table.insert(lines, string.format("%s  %s", status_label(file), file.path))
+  if #args == 0 then
+    local current = vim.api.nvim_buf_get_name(0)
+    if current ~= "" and git.root(current) then
+      local current_source = source.from_args({ "%" })
+      if current_source then
+        return current_source
+      end
     end
   end
 
-  set_lines(state.file_buf, lines)
-  vim.api.nvim_buf_clear_namespace(state.file_buf, namespace, 0, -1)
+  return source.from_args(args)
+end
 
-  for index, file in ipairs(state.source.files) do
-    vim.api.nvim_buf_set_extmark(state.file_buf, namespace, index - 1, 0, {
-      end_col = 2,
-      hl_group = highlights.status_group(file.status),
-    })
+local function choose_file(diff_source)
+  if not diff_source or #diff_source.files == 0 then
+    return nil
   end
+
+  if diff_source.kind == "git" then
+    local current = vim.api.nvim_buf_get_name(0)
+    local rel = git.relative(diff_source.root, current)
+    if rel then
+      for _, file in ipairs(diff_source.files) do
+        if file.path == rel then
+          return file
+        end
+      end
+    end
+  end
+
+  return diff_source.files[1]
+end
+
+local function base_lines_for(diff_source, file)
+  if diff_source.kind == "files" then
+    return readfile_or_empty(file.left), file.left, file.right
+  end
+
+  if file.status == "?" then
+    return { "" }, "Git index:/dev/null", diff_source.root .. "/" .. file.path
+  end
+
+  local base = diff_source.mode == "staged" and git.read_head(diff_source.root, file.path)
+    or git.read_index(diff_source.root, file.path)
+  return base, "Git base:" .. file.path, diff_source.root .. "/" .. file.path
+end
+
+local function open_edit_buffer(path)
+  local current = vim.api.nvim_get_current_buf()
+  if vim.api.nvim_buf_get_name(current) == vim.fs.normalize(path) then
+    return current
+  end
+
+  local buf = vim.fn.bufadd(path)
+  vim.fn.bufload(buf)
+  vim.api.nvim_win_set_buf(0, buf)
+  return buf
+end
+
+local function diff_winhighlight()
+  return table.concat({
+    "DiffAdd:DiffscopeAdded",
+    "DiffDelete:DiffscopeRemoved",
+    "DiffChange:DiffscopeChanged",
+    "DiffText:DiffscopeChangedText",
+  }, ",")
+end
+
+local function tune_window(win, role, path)
+  if not valid_win(win) then
+    return
+  end
+
+  vim.wo[win].wrap = false
+  vim.wo[win].foldenable = false
+  vim.wo[win].cursorline = true
+  vim.wo[win].signcolumn = "yes"
+  vim.wo[win].winhighlight = diff_winhighlight()
+
+  if role == "base" then
+    vim.wo[win].winbar = " 󰦛 Before / read-only: " .. path
+  else
+    vim.wo[win].winbar = " 󰏫 Now / edit this file: " .. path
+  end
+end
+
+local function apply_diff_options()
+  state.old_diffopt = vim.o.diffopt
+  vim.o.diffopt = table.concat({
+    "internal",
+    "filler",
+    "closeoff",
+    "algorithm:histogram",
+    "indent-heuristic",
+    "linematch:60",
+    "context:99999",
+  }, ",")
+end
+
+local function map(buf, lhs, rhs, desc)
+  if not lhs or lhs == "" then
+    return
+  end
+  vim.keymap.set("n", lhs, rhs, { buffer = buf, silent = true, nowait = true, desc = desc })
+  state.mapped_buffers[buf] = state.mapped_buffers[buf] or {}
+  table.insert(state.mapped_buffers[buf], lhs)
+end
+
+local function clear_mappings()
+  if not state then
+    return
+  end
+
+  for buf, mappings in pairs(state.mapped_buffers or {}) do
+    if valid_buf(buf) then
+      for _, lhs in ipairs(mappings) do
+        pcall(vim.keymap.del, "n", lhs, { buffer = buf })
+      end
+    end
+  end
+end
+
+local function setup_mappings(buf)
+  local mappings = config.options.mappings
+  map(buf, mappings.close, M.close, "Close Diffscope")
+  map(buf, mappings.help, M.toggle_help, "Diffscope help")
+  map(buf, mappings.next_hunk, M.next_hunk, "Next hunk")
+  map(buf, mappings.prev_hunk, M.prev_hunk, "Previous hunk")
+  map(buf, mappings.stage_file, M.stage_file, "Stage current file")
+  map(buf, mappings.reset_file, M.reset_file, "Reset current file")
 end
 
 local function help_lines()
   return {
-    "Diffscope help",
+    "Diffscope live file diff",
     "",
-    "j/k       move in file list",
-    "<CR>      open side-by-side diff",
-    "p         preview unified diff",
-    "]c / [c   next / previous hunk",
-    "s         stage selected file",
-    "r         reset selected file, with confirmation",
-    "?         toggle this help",
-    "q         close Diffscope",
+    "The right pane is the real file buffer. Edit it directly.",
+    "The left pane is a read-only base copy.",
+    "",
+    "Green background  added/new lines",
+    "Red background    removed/old lines",
+    "",
+    "]c / [c          next / previous hunk",
+    "s                stage this file",
+    "r                reset this file, with confirmation",
+    "q                close diff mode, keep editing the file",
+    "?                toggle this help",
   }
 end
 
@@ -119,233 +208,77 @@ function M.toggle_help()
     return
   end
 
-  local buf = create_scratch("Diffscope://help", "")
-  set_lines(buf, help_lines())
-
-  local width = 48
+  local buf = create_base_buffer("Diffscope://help", help_lines(), "")
+  local width = 58
   local height = #help_lines() + 2
   local ui = vim.api.nvim_list_uis()[1]
   state.help_win = vim.api.nvim_open_win(buf, true, {
     relative = "editor",
     width = width,
     height = height,
-    row = math.floor((ui.height - height) / 2),
-    col = math.floor((ui.width - width) / 2),
+    row = math.max(0, math.floor((ui.height - height) / 2)),
+    col = math.max(0, math.floor((ui.width - width) / 2)),
     style = "minimal",
     border = "rounded",
     title = " Diffscope ",
     title_pos = "center",
   })
 
-  map(buf, "q", M.toggle_help, "Close help")
-  map(buf, "?", M.toggle_help, "Close help")
+  vim.keymap.set("n", "q", M.toggle_help, { buffer = buf, silent = true })
+  vim.keymap.set("n", "?", M.toggle_help, { buffer = buf, silent = true })
 end
 
-local function preview_lines_for(file)
-  if state.source.kind == "files" then
-    return vim.fn.systemlist({ "git", "diff", "--no-color", "--no-index", "--", file.left, file.right })
-  end
-
-  local lines = git.diff(state.source.root, file.path, state.source.mode)
-  if #lines == 0 then
-    return { "No unstaged diff for " .. file.path, "", "Try :DiffScope staged for staged changes." }
-  end
-  return lines
+function M.next_hunk()
+  vim.cmd("normal! ]c")
 end
 
-function M.preview()
-  local file = selected_file()
-  if not file or not valid_buf(state.diff_buf) then
-    return
-  end
-
-  if valid_win(state.diff_win) then
-    vim.api.nvim_set_current_win(state.diff_win)
-  end
-
-  state.view = "unified"
-  vim.wo[state.diff_win].diff = false
-  vim.wo[state.diff_win].winbar = " Diffscope unified diff: " .. file.path
-  vim.bo[state.diff_buf].filetype = "diff"
-  set_lines(state.diff_buf, preview_lines_for(file))
-end
-
-local function close_right_windows()
-  if not state then
-    return
-  end
-
-  for _, win in ipairs(vim.api.nvim_tabpage_list_wins(state.tab)) do
-    if win ~= state.file_win and valid_win(win) then
-      pcall(vim.api.nvim_win_close, win, true)
-    end
-  end
-end
-
-local function buffer_from_lines(name, lines, filetype)
-  local buf = create_scratch(name, filetype)
-  set_lines(buf, lines)
-  vim.bo[buf].modifiable = false
-  vim.bo[buf].readonly = true
-  return buf
-end
-
-local function filetype_for(path)
-  local ft = vim.filetype.match({ filename = path })
-  return ft or ""
-end
-
-local function split_buffers_for(file)
-  if state.source.kind == "files" then
-    return buffer_from_lines(file.left, vim.fn.readfile(file.left), filetype_for(file.left)),
-      buffer_from_lines(file.right, vim.fn.readfile(file.right), filetype_for(file.right))
-  end
-
-  local root = state.source.root
-  local left = state.source.mode == "staged" and git.read_head(root, file.path)
-    or git.read_index(root, file.path)
-  local right = state.source.mode == "staged" and git.read_index(root, file.path)
-    or git.read_worktree(root, file.path)
-  local ft = filetype_for(file.path)
-
-  return buffer_from_lines("Diffscope://base/" .. file.path, left, ft),
-    buffer_from_lines("Diffscope://current/" .. file.path, right, ft)
-end
-
-local function apply_diff_options()
-  state.old_diffopt = vim.o.diffopt
-  local diffopt = {
-    "internal",
-    "filler",
-    "closeoff",
-    "algorithm:histogram",
-    "indent-heuristic",
-    "linematch:60",
-  }
-  vim.o.diffopt = table.concat(diffopt, ",")
-end
-
-function M.open_split()
-  local file = selected_file()
-  if not file then
-    return
-  end
-
-  close_right_windows()
-  apply_diff_options()
-
-  vim.api.nvim_set_current_win(state.file_win)
-  vim.cmd("rightbelow vertical new")
-  local left_win = vim.api.nvim_get_current_win()
-  local left_buf, right_buf = split_buffers_for(file)
-  vim.api.nvim_win_set_buf(left_win, left_buf)
-
-  vim.cmd("rightbelow vertical new")
-  local right_win = vim.api.nvim_get_current_win()
-  vim.api.nvim_win_set_buf(right_win, right_buf)
-
-  vim.api.nvim_set_current_win(left_win)
-  vim.wo[left_win].winbar = " Base: " .. file.path
-  vim.cmd("diffthis")
-  vim.api.nvim_set_current_win(right_win)
-  vim.wo[right_win].winbar = " Current: " .. file.path
-  vim.cmd("diffthis")
-
-  state.view = "split"
-  state.diff_win = right_win
-  state.diff_buf = right_buf
-
-  map(left_buf, config.options.mappings.close, M.close, "Close Diffscope")
-  map(right_buf, config.options.mappings.close, M.close, "Close Diffscope")
-  map(left_buf, config.options.mappings.help, M.toggle_help, "Diffscope help")
-  map(right_buf, config.options.mappings.help, M.toggle_help, "Diffscope help")
-  map(left_buf, config.options.mappings.next_hunk, M.next_hunk, "Next hunk")
-  map(right_buf, config.options.mappings.next_hunk, M.next_hunk, "Next hunk")
-  map(left_buf, config.options.mappings.prev_hunk, M.prev_hunk, "Previous hunk")
-  map(right_buf, config.options.mappings.prev_hunk, M.prev_hunk, "Previous hunk")
-end
-
-local function refresh_source()
-  local new_source, err = source.from_args(state.args)
-  if not new_source then
-    notify(err, vim.log.levels.ERROR)
-    return
-  end
-  state.source = new_source
-  render_file_list()
-  if #state.source.files > 0 then
-    vim.api.nvim_win_set_cursor(state.file_win, { 1, 0 })
-    M.preview()
-  else
-    set_lines(state.diff_buf, { "No changes" })
-  end
+function M.prev_hunk()
+  vim.cmd("normal! [c")
 end
 
 function M.stage_file()
-  local file = selected_file()
-  if not file or state.source.kind ~= "git" then
+  if not state or state.source.kind ~= "git" then
     return
   end
 
-  local ok, output = git.stage(state.source.root, file.path)
+  if valid_buf(state.edit_buf) and vim.bo[state.edit_buf].modified then
+    vim.api.nvim_buf_call(state.edit_buf, function()
+      vim.cmd("write")
+    end)
+  end
+
+  local ok, output = git.stage(state.source.root, state.file.path)
   if not ok then
     notify(table.concat(output, "\n"), vim.log.levels.ERROR)
     return
   end
 
-  notify("Staged " .. file.path)
-  refresh_source()
+  notify("Staged " .. state.file.path)
 end
 
 function M.reset_file()
-  local file = selected_file()
-  if not file or state.source.kind ~= "git" then
+  if not state or state.source.kind ~= "git" then
     return
   end
 
-  local answer = vim.fn.confirm("Reset " .. file.path .. "?", "&Reset\n&Cancel", 2)
+  local answer = vim.fn.confirm("Reset " .. state.file.path .. "?", "&Reset\n&Cancel", 2)
   if answer ~= 1 then
     return
   end
 
-  local ok, output = git.reset(state.source.root, file)
+  local ok, output = git.reset(state.source.root, state.file)
   if not ok then
     notify(table.concat(output, "\n"), vim.log.levels.ERROR)
     return
   end
 
-  notify("Reset " .. file.path)
-  refresh_source()
-end
-
-function M.next_hunk()
-  local win = vim.api.nvim_get_current_win()
-  if vim.wo[win].diff then
-    vim.cmd("normal! ]c")
-    return
+  if valid_buf(state.edit_buf) then
+    vim.api.nvim_buf_call(state.edit_buf, function()
+      vim.cmd("edit!")
+    end)
   end
-  vim.fn.search("^@@", "W")
-end
 
-function M.prev_hunk()
-  local win = vim.api.nvim_get_current_win()
-  if vim.wo[win].diff then
-    vim.cmd("normal! [c")
-    return
-  end
-  vim.fn.search("^@@", "bW")
-end
-
-local function setup_mappings(buf)
-  local mappings = config.options.mappings
-  map(buf, mappings.close, M.close, "Close Diffscope")
-  map(buf, mappings.help, M.toggle_help, "Diffscope help")
-  map(buf, mappings.preview, M.preview, "Preview unified diff")
-  map(buf, mappings.open_split, M.open_split, "Open side-by-side diff")
-  map(buf, mappings.next_hunk, M.next_hunk, "Next hunk")
-  map(buf, mappings.prev_hunk, M.prev_hunk, "Previous hunk")
-  map(buf, mappings.stage_file, M.stage_file, "Stage file")
-  map(buf, mappings.reset_file, M.reset_file, "Reset file")
+  notify("Reset " .. state.file.path)
 end
 
 function M.close()
@@ -353,31 +286,37 @@ function M.close()
     return
   end
 
-  if state.old_diffopt then
-    vim.o.diffopt = state.old_diffopt
+  local old_state = state
+  clear_mappings()
+
+  if old_state.old_diffopt then
+    vim.o.diffopt = old_state.old_diffopt
   end
 
-  if valid_win(state.help_win) then
-    pcall(vim.api.nvim_win_close, state.help_win, true)
+  if valid_win(old_state.help_win) then
+    pcall(vim.api.nvim_win_close, old_state.help_win, true)
   end
 
-  local tab = state.tab
-  local previous = state.previous_tab
-  state = nil
-
-  if tab and vim.api.nvim_tabpage_is_valid(tab) then
-    if #vim.api.nvim_list_tabpages() > 1 then
-      vim.api.nvim_set_current_tabpage(tab)
-      vim.cmd("tabclose")
-    else
-      vim.cmd("diffoff!")
-      vim.cmd("enew")
+  for _, win in ipairs({ old_state.base_win, old_state.edit_win }) do
+    if valid_win(win) then
+      vim.api.nvim_win_call(win, function()
+        pcall(vim.cmd, "diffoff")
+        vim.wo.winhighlight = ""
+        vim.wo.winbar = ""
+        vim.wo.foldenable = true
+      end)
     end
   end
 
-  if previous and vim.api.nvim_tabpage_is_valid(previous) then
-    vim.api.nvim_set_current_tabpage(previous)
+  if valid_win(old_state.base_win) then
+    pcall(vim.api.nvim_win_close, old_state.base_win, true)
   end
+
+  if valid_win(old_state.edit_win) then
+    vim.api.nvim_set_current_win(old_state.edit_win)
+  end
+
+  state = nil
 end
 
 function M.open(args)
@@ -387,56 +326,62 @@ function M.open(args)
     M.close()
   end
 
-  local diff_source, err = source.from_args(args)
+  local diff_source, err = resolve_source(args)
   if not diff_source then
     notify(err, vim.log.levels.ERROR)
     return
   end
 
-  local previous_tab = vim.api.nvim_get_current_tabpage()
-  vim.cmd("tabnew")
-  local tab = vim.api.nvim_get_current_tabpage()
+  local file = choose_file(diff_source)
+  if not file then
+    notify("No file available to diff", vim.log.levels.INFO)
+    return
+  end
 
-  local diff_buf = create_scratch("Diffscope://diff", "diff")
-  vim.api.nvim_win_set_buf(0, diff_buf)
-  local diff_win = vim.api.nvim_get_current_win()
-
-  vim.cmd("topleft vertical " .. tonumber(config.options.layout.file_panel_width) .. "new")
-  local file_win = vim.api.nvim_get_current_win()
-  local file_buf = create_scratch("Diffscope://files", "")
-  vim.api.nvim_win_set_buf(file_win, file_buf)
-  vim.wo[file_win].number = false
-  vim.wo[file_win].relativenumber = false
-  vim.wo[file_win].signcolumn = "no"
-  vim.wo[file_win].winfixwidth = true
-  vim.wo[file_win].cursorline = true
-  vim.wo[file_win].winbar = " Diffscope: " .. diff_source.title
-  vim.wo[diff_win].winbar = " Diffscope unified diff"
+  local base_lines, base_name, edit_path = base_lines_for(diff_source, file)
+  local edit_label = diff_source.kind == "files" and file.right or file.path
+  local ft = filetype_for(edit_path)
 
   state = {
     args = args or {},
-    previous_tab = previous_tab,
-    tab = tab,
     source = diff_source,
-    file_win = file_win,
-    file_buf = file_buf,
-    diff_win = diff_win,
-    diff_buf = diff_buf,
-    view = "unified",
+    file = file,
+    previous_win = vim.api.nvim_get_current_win(),
+    mapped_buffers = {},
   }
 
-  setup_mappings(file_buf)
-  setup_mappings(diff_buf)
-  render_file_list()
+  local edit_buf = open_edit_buffer(edit_path)
+  local edit_win = vim.api.nvim_get_current_win()
+  local base_buf = create_base_buffer("Diffscope://base/" .. edit_label, base_lines, ft)
 
-  if #diff_source.files > 0 then
-    M.preview()
-    if config.options.view.default == "split" then
-      M.open_split()
-    end
+  vim.cmd("leftabove vertical new")
+  local base_win = vim.api.nvim_get_current_win()
+  vim.api.nvim_win_set_buf(base_win, base_buf)
+
+  if config.options.layout.base_width then
+    vim.api.nvim_win_set_width(base_win, tonumber(config.options.layout.base_width))
   else
-    set_lines(diff_buf, { "No changes", "", diff_source.title })
+    vim.cmd("wincmd =")
   end
+
+  state.base_win = base_win
+  state.base_buf = base_buf
+  state.edit_win = edit_win
+  state.edit_buf = edit_buf
+
+  apply_diff_options()
+  tune_window(base_win, "base", base_name)
+  tune_window(edit_win, "edit", edit_label)
+
+  vim.api.nvim_set_current_win(base_win)
+  vim.cmd("diffthis")
+  vim.api.nvim_set_current_win(edit_win)
+  vim.cmd("diffthis")
+
+  setup_mappings(base_buf)
+  setup_mappings(edit_buf)
+
+  notify("Editing live diff for " .. edit_label)
 end
 
 return M
