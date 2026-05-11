@@ -1,0 +1,102 @@
+*diffscope.nvim*              Focused diff review workspace for Neovim
+
+==============================================================================
+CONTENTS                                                *diffscope-contents*
+
+1. Introduction                                      |diffscope-introduction|
+2. Commands                                          |diffscope-commands|
+3. Mappings                                          |diffscope-mappings|
+4. Configuration                                     |diffscope-configuration|
+5. Design notes                                      |diffscope-design|
+
+==============================================================================
+INTRODUCTION                                        *diffscope-introduction*
+
+Diffscope.nvim opens a dedicated tab for reviewing diffs. It provides a file
+list on the left and a diff surface on the right. Unified previews use a
+scratch buffer with 'filetype' set to "diff". Side-by-side views use Neovim's
+native |diffthis| engine.
+
+Diffscope intentionally exposes |:DiffScope| only. It does not install a
+`:Diff` alias.
+
+==============================================================================
+COMMANDS                                                *diffscope-commands*
+
+:DiffScope                                              *:DiffScope*
+        Open the current Git working tree in a diff workspace.
+
+:DiffScope staged
+        Open staged Git changes.
+
+:DiffScope %
+        Open the current file.
+
+:DiffScope {left} {right}
+        Compare two files directly.
+
+==============================================================================
+MAPPINGS                                                *diffscope-mappings*
+
+Default normal-mode mappings inside Diffscope buffers:
+
+                                                        *diffscope-mappings-q*
+q       Close Diffscope and return to the previous tab.
+
+                                                        *diffscope-mappings-help*
+?       Toggle help.
+
+                                                        *diffscope-mappings-preview*
+p       Preview the selected file as a unified diff.
+
+                                                        *diffscope-mappings-open*
+<CR>    Open the selected file in native side-by-side diff mode.
+
+                                                        *diffscope-mappings-hunks*
+]c      Jump to the next hunk.
+[c      Jump to the previous hunk.
+
+                                                        *diffscope-mappings-stage*
+s       Stage the selected file.
+
+                                                        *diffscope-mappings-reset*
+r       Reset the selected file after confirmation.
+
+==============================================================================
+CONFIGURATION                                      *diffscope-configuration*
+
+Example: >lua
+
+  require("diffscope").setup({
+    layout = {
+      file_panel_width = 32,
+    },
+    view = {
+      default = "unified", -- or "split"
+    },
+    mappings = {
+      close = "q",
+      help = "?",
+      preview = "p",
+      open_split = "<CR>",
+      next_hunk = "]c",
+      prev_hunk = "[c",
+      stage_file = "s",
+      reset_file = "r",
+    },
+  })
+<
+
+==============================================================================
+DESIGN NOTES                                            *diffscope-design*
+
+Diff review is treated as a focused task. Diffscope opens a tab-local
+workspace so the user's existing window layout is preserved. `q` closes the
+workspace and returns to the previous tab.
+
+Side-by-side views lean on Neovim's native diff engine and configure 'diffopt'
+with the internal histogram algorithm, indent heuristics, filler lines, and
+line matching.
+
+==============================================================================
+vim:tw=78:ts=8:noet:ft=help:norl:
