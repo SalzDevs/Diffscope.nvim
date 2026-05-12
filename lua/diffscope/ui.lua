@@ -952,7 +952,7 @@ function M.reload()
   notify("Reloaded Diffscope changes")
 end
 
-local picker_header_lines = 3
+local picker_header_lines = 1
 
 local function filtered_file_indices()
   local indices = {}
@@ -985,8 +985,6 @@ render_picker = function()
 
   local lines = {
     string.format("%d/%d changed files  %d reviewed", state.file_index or 0, #(state.files or {}), reviewed_count),
-    string.format("filter: %s", state.picker_filter and state.picker_filter ~= "" and state.picker_filter or "<none>"),
-    "keys: <CR> open  d reviewed  / filter  R reload  q close",
   }
 
   if #indices == 0 then
@@ -998,6 +996,30 @@ render_picker = function()
   end
 
   set_lines(state.picker_buf, lines)
+  vim.api.nvim_buf_clear_namespace(state.picker_buf, namespace, 0, -1)
+
+  for line_number, file_index in ipairs(indices) do
+    local line = picker_header_lines + line_number
+    local file = state.files[file_index]
+    local stats = diff_stats_for(file)
+    local text = lines[line] or ""
+    local add_start, add_end = text:find("+" .. stats.additions, 1, true)
+    local del_start, del_end = text:find("-" .. stats.deletions, add_end and (add_end + 1) or 1, true)
+
+    if add_start then
+      vim.api.nvim_buf_set_extmark(state.picker_buf, namespace, line - 1, add_start - 1, {
+        end_col = add_end,
+        hl_group = "DiffscopePickerAdded",
+      })
+    end
+
+    if del_start then
+      vim.api.nvim_buf_set_extmark(state.picker_buf, namespace, line - 1, del_start - 1, {
+        end_col = del_end,
+        hl_group = "DiffscopePickerRemoved",
+      })
+    end
+  end
 
   if valid_win(state.picker_win) then
     local cursor = vim.api.nvim_win_get_cursor(state.picker_win)[1]
@@ -1043,7 +1065,7 @@ function M.open_file_picker()
 
   local buf = create_diff_viewer("Diffscope://files", {}, "")
   local width = math.min(90, math.max(52, math.floor(vim.o.columns * 0.55)))
-  local height = math.min(math.max(#state.files + picker_header_lines, 6), math.max(1, vim.o.lines - 8))
+  local height = math.min(math.max(#state.files + picker_header_lines, 4), math.max(1, vim.o.lines - 8))
 
   state.picker_buf = buf
   state.picker_win = vim.api.nvim_open_win(buf, true, {

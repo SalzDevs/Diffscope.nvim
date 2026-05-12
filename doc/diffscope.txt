@@ -111,8 +111,9 @@ right pane is the user's real file buffer.
 The left pane refreshes after the editable buffer is written. File navigation
 is built into Diffscope through a changed-files picker and next/previous file
 mappings, so the workflow does not depend on external file explorers. The
-picker shows review progress, additions/deletions, stale markers, reviewed
-markers, and an interactive filter.
+picker shows review progress, additions/deletions, stale markers, and reviewed
+markers. Addition counts are highlighted green; deletion counts are highlighted
+red.
 
 When an agent or another process changes files while Diffscope is open,
 Diffscope marks both panes as stale and prompts the user to press R. The

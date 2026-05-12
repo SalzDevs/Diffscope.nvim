@@ -66,15 +66,15 @@ The right pane is not a preview buffer. It is the actual file, so normal edits a
 
 If an agent or another process changes files while Diffscope is open, Diffscope marks both panes as stale and asks you to press `R` to reload safely. When your editor buffer has no unsaved edits, the left pane auto-refreshes its code view; `R` still performs a full safe reload of the changed-file list.
 
-The changed-files picker shows review progress, additions/deletions, stale files, and filtering:
+The changed-files picker shows review progress, additions/deletions, and stale/reviewed files:
 
 ```text
 2/5 changed files  1 reviewed
-filter: lua
-keys: <CR> open  d reviewed  / filter  R reload  q close
 ➜●✓ M  lua/foo.lua  +12 -3
     A  README.md    +40 -0
 ```
+
+Addition counts are highlighted green; deletion counts are highlighted red.
 
 ## Default mappings
 
