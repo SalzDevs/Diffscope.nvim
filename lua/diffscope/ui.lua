@@ -14,6 +14,22 @@ local function notify(message, level)
   vim.notify(message, level or vim.log.levels.INFO, { title = "Diffscope" })
 end
 
+local function with_quiet_file_messages(fn)
+  local shortmess = vim.o.shortmess
+  if not shortmess:find("F", 1, true) then
+    vim.o.shortmess = shortmess .. "F"
+  end
+
+  local ok, result = pcall(fn)
+  vim.o.shortmess = shortmess
+
+  if not ok then
+    notify(result, vim.log.levels.ERROR)
+  end
+
+  return ok, result
+end
+
 local function valid_win(win)
   return win and vim.api.nvim_win_is_valid(win)
 end
@@ -154,6 +170,7 @@ local function update_snapshot()
   state.snapshot_files = snapshot.by_path
   state.stale_files = {}
   state.stale = false
+  state.reset_arm = nil
 end
 
 local function open_edit_buffer(path)
@@ -163,8 +180,10 @@ local function open_edit_buffer(path)
   end
 
   local buf = vim.fn.bufadd(path)
-  vim.fn.bufload(buf)
-  vim.api.nvim_win_set_buf(0, buf)
+  with_quiet_file_messages(function()
+    vim.fn.bufload(buf)
+    vim.api.nvim_win_set_buf(0, buf)
+  end)
   return buf
 end
 
@@ -374,18 +393,61 @@ local function current_file_summary()
   return string.format("%s %s", status_label(state.file), state.file.path)
 end
 
+local function reset_is_armed()
+  if not state or not state.reset_arm or not state.file then
+    return false
+  end
+
+  if state.reset_arm.key ~= file_key(state.file) then
+    state.reset_arm = nil
+    return false
+  end
+
+  if vim.loop.hrtime() > state.reset_arm.expires_at then
+    state.reset_arm = nil
+    return false
+  end
+
+  return true
+end
+
+local function arm_reset()
+  if not state or not state.file then
+    return
+  end
+
+  local key = file_key(state.file)
+  state.reset_arm = {
+    key = key,
+    expires_at = vim.loop.hrtime() + 3000000000,
+  }
+  update_status()
+
+  vim.defer_fn(function()
+    if not state or not state.reset_arm then
+      return
+    end
+
+    if state.reset_arm.key == key and vim.loop.hrtime() > state.reset_arm.expires_at then
+      state.reset_arm = nil
+      update_status()
+    end
+  end, 3200)
+end
+
 local function status_text(role)
   local index = state.file_index or 0
   local count = state.files and #state.files or 0
   local file = current_file_summary()
   local stale = state.stale and " · stale (R)" or ""
+  local reset_hint = reset_is_armed() and " · reset? (r)" or ""
 
   if role == "VIEW" then
-    return string.format("Diffscope · %d/%d · %s%s", index, count, file, stale)
+    return string.format("Diffscope · %d/%d · %s%s%s", index, count, file, stale, reset_hint)
   end
 
   local modified = valid_buf(state.edit_buf) and vim.bo[state.edit_buf].modified and " [+]" or ""
-  return string.format("Edit · %s%s%s", file, modified, stale)
+  return string.format("Edit · %s%s%s%s", file, modified, stale, reset_hint)
 end
 
 update_status = function()
@@ -521,7 +583,7 @@ local function help_lines()
     "d                toggle reviewed marker",
     "/                filter changed-files picker",
     "s                write and stage this file",
-    "r                reset this file, with confirmation",
+    "r                reset this file (press twice to confirm)",
     "q                close the diff viewer",
     "?                toggle this help",
   }
@@ -653,7 +715,7 @@ function M.stage_file()
   end
 
   refresh_diff()
-  notify("Staged " .. state.file.path)
+  update_status()
 end
 
 function M.reset_file()
@@ -661,10 +723,13 @@ function M.reset_file()
     return
   end
 
-  local answer = vim.fn.confirm("Reset " .. state.file.path .. "?", "&Reset\n&Cancel", 2)
-  if answer ~= 1 then
+  if not reset_is_armed() then
+    arm_reset()
     return
   end
+
+  state.reset_arm = nil
+  update_status()
 
   local ok, output = git.reset(state.source.root, state.file)
   if not ok then
@@ -672,16 +737,13 @@ function M.reset_file()
     return
   end
 
-  local reset_path = state.file.path
-
   if valid_buf(state.edit_buf) then
     vim.api.nvim_buf_call(state.edit_buf, function()
-      pcall(vim.cmd, "edit!")
+      pcall(vim.cmd, "silent! edit!")
     end)
   end
 
   M.reload()
-  notify("Reset " .. reset_path)
 end
 
 local function setup_mappings(buf)
@@ -751,12 +813,12 @@ local function prepare_file_switch()
   local answer = vim.fn.confirm("Save changes before switching files?", "&Write\n&Discard\n&Cancel", 1)
   if answer == 1 then
     vim.api.nvim_buf_call(state.edit_buf, function()
-      vim.cmd("write")
+      pcall(vim.cmd, "silent! write")
     end)
     return true
   elseif answer == 2 then
     vim.api.nvim_buf_call(state.edit_buf, function()
-      vim.cmd("edit!")
+      pcall(vim.cmd, "silent! edit!")
     end)
     return true
   end
@@ -809,7 +871,6 @@ function M.open_file(index)
     vim.api.nvim_set_current_win(state.edit_win)
   end
 
-  notify(string.format("Diffscope file %d/%d: %s", state.file_index, #state.files, edit_label))
 end
 
 function M.next_file()
@@ -871,7 +932,7 @@ function M.reload()
     )
     if answer == 1 then
       vim.api.nvim_buf_call(state.edit_buf, function()
-        vim.cmd("edit!")
+        pcall(vim.cmd, "silent! edit!")
       end)
     elseif answer == 2 then
       keep_unsaved = true
@@ -887,7 +948,6 @@ function M.reload()
   end
 
   if #new_source.files == 0 then
-    notify("No changed files after reload")
     M.close()
     return
   end
@@ -912,7 +972,7 @@ function M.reload()
 
   if not keep_unsaved and valid_buf(edit_buf) and not vim.bo[edit_buf].modified then
     vim.api.nvim_buf_call(edit_buf, function()
-      pcall(vim.cmd, "edit!")
+      pcall(vim.cmd, "silent! edit!")
     end)
   end
 
@@ -933,7 +993,6 @@ function M.reload()
     vim.api.nvim_set_current_win(state.edit_win)
   end
 
-  notify("Reloaded Diffscope changes")
 end
 
 local picker_header_lines = 1
@@ -1217,7 +1276,6 @@ function M.open(args)
   update_status()
 
   vim.api.nvim_set_current_win(edit_win)
-  notify("Diff viewer opened for " .. edit_label)
 end
 
 return M

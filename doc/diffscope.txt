@@ -73,7 +73,7 @@ R       Reload external changes detected while Diffscope is open. Also works
 s       Write and stage the current file.
 
                                                         *diffscope-mappings-reset*
-r       Reset the current file after confirmation.
+r       Reset the current file (press twice to confirm).
 
 ==============================================================================
 CONFIGURATION                                      *diffscope-configuration*

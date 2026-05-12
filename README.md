@@ -87,7 +87,7 @@ Addition counts are highlighted green; deletion counts are highlighted red.
 | `d` | Toggle reviewed marker, also works from the file picker |
 | `R` | Reload external changes, also works from the file picker |
 | `s` | Write and stage the current file |
-| `r` | Reset current file, with confirmation |
+| `r` | Reset current file (press twice to confirm) |
 | `?` | Toggle help |
 | `q` | Close the diff viewer |
 
