@@ -5,6 +5,7 @@ local test_files = {
   "tests.e2e.picker_test",
   "tests.e2e.reload_test",
   "tests.e2e.actions_test",
+  "tests.e2e.noise_test",
 }
 
 local failures = {}
