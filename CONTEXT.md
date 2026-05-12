@@ -21,8 +21,8 @@ The real Neovim file buffer where the user edits the current state of the file.
 _Avoid_: Preview buffer, generated buffer
 
 **Changed-files Picker**:
-A temporary picker for selecting files with changes inside the Review Surface.
-_Avoid_: File explorer, sidebar
+A temporary picker for selecting files with changes and lightweight review progress inside the Review Surface.
+_Avoid_: File explorer, sidebar, Git status panel
 
 **Stale Review**:
 A review state where files changed externally after Diffscope opened and need safe reload.
@@ -36,7 +36,7 @@ _Avoid_: Git repo, diff command
 
 - A **Review Surface** contains one **Code-shaped Diff** and one **Editable Buffer**.
 - **Review Metadata** belongs in the winbar, picker, or help; it does not belong inside the **Code-shaped Diff**.
-- A **Changed-files Picker** selects which file is shown in the **Review Surface**.
+- A **Changed-files Picker** selects which file is shown in the **Review Surface** and may show lightweight **Review Metadata**.
 - A **Stale Review** belongs to an open **Review Surface**.
 - A **Review Surface** is built from one **Change Source**.
 
@@ -49,5 +49,6 @@ _Avoid_: Git repo, diff command
 
 - "diff viewer" can mean raw unified diff or **Code-shaped Diff** — resolved: Diffscope's primary view is **Code-shaped Diff**.
 - "file explorer" can imply general project navigation — resolved: Diffscope uses a **Changed-files Picker** only for changed files.
+- "Git status panel" can imply staging/reset workflows inside the picker — resolved: the **Changed-files Picker** is for navigation and lightweight review progress only.
 - "Git diff" can imply the product is Git-only — resolved: Git is the first **Change Source**, not the product boundary.
 - "metadata in the diff" can add visual noise — resolved: **Code-shaped Diff** shows code only; **Review Metadata** lives outside it.
