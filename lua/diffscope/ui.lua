@@ -366,10 +366,6 @@ local function tune_viewer_window(win, edit_win, _label)
   update_status()
 end
 
-local function hunk_count()
-  return state and state.hunks and #state.hunks or 0
-end
-
 local function current_file_summary()
   if not state or not state.file then
     return "No file"
@@ -381,27 +377,15 @@ end
 local function status_text(role)
   local index = state.file_index or 0
   local count = state.files and #state.files or 0
-  local hunks = hunk_count()
-  local reviewed_count = 0
-  for _, reviewed in pairs(state.reviewed or {}) do
-    if reviewed then
-      reviewed_count = reviewed_count + 1
-    end
-  end
-  local modified = valid_buf(state.edit_buf) and vim.bo[state.edit_buf].modified and " [+]" or ""
-  local stale = state.stale and "  STALE:R" or ""
+  local file = current_file_summary()
+  local stale = state.stale and " · stale (R)" or ""
 
-  return table.concat({
-    "Diffscope",
-    role,
-    string.format("%d/%d", index, count),
-    current_file_summary() .. modified,
-    string.format("%d hunks", hunks),
-    string.format("%d reviewed", reviewed_count),
-    "f files",
-    "R reload",
-    "q close" .. stale,
-  }, "  ")
+  if role == "VIEW" then
+    return string.format("Diffscope · %d/%d · %s%s", index, count, file, stale)
+  end
+
+  local modified = valid_buf(state.edit_buf) and vim.bo[state.edit_buf].modified and " [+]" or ""
+  return string.format("Edit · %s%s%s", file, modified, stale)
 end
 
 update_status = function()
