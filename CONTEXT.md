@@ -24,11 +24,16 @@ _Avoid_: File explorer, sidebar
 A review state where files changed externally after Diffscope opened and need safe reload.
 _Avoid_: Live reload, project reload
 
+**Change Source**:
+A provider of changed files and before/after content for a Review Surface.
+_Avoid_: Git repo, diff command
+
 ## Relationships
 
 - A **Review Surface** contains one **Code-shaped Diff** and one **Editable Buffer**.
 - A **Changed-files Picker** selects which file is shown in the **Review Surface**.
 - A **Stale Review** belongs to an open **Review Surface**.
+- A **Review Surface** is built from one **Change Source**.
 
 ## Example dialogue
 
@@ -39,3 +44,4 @@ _Avoid_: Live reload, project reload
 
 - "diff viewer" can mean raw unified diff or **Code-shaped Diff** — resolved: Diffscope's primary view is **Code-shaped Diff**.
 - "file explorer" can imply general project navigation — resolved: Diffscope uses a **Changed-files Picker** only for changed files.
+- "Git diff" can imply the product is Git-only — resolved: Git is the first **Change Source**, not the product boundary.
