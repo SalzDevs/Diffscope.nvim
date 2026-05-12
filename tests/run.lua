@@ -3,6 +3,7 @@ local test_files = {
   "tests.e2e.git_source_test",
   "tests.e2e.ui_open_test",
   "tests.e2e.picker_test",
+  "tests.e2e.reload_test",
 }
 
 local failures = {}
@@ -18,6 +19,12 @@ for _, module in ipairs(test_files) do
       total = total + 1
       local test_name = module .. " :: " .. name
       local case_ok, err = xpcall(fn, debug.traceback)
+      pcall(function()
+        require("diffscope").close()
+      end)
+      if #vim.api.nvim_list_tabpages() > 1 then
+        pcall(vim.cmd, "silent! tabonly!")
+      end
       if case_ok then
         print("PASS " .. test_name)
       else
