@@ -371,8 +371,6 @@ local function auto_refresh_if_safe(snapshot)
     return
   end
 
-  pcall(vim.cmd, "checktime")
-
   if snapshot.files and #snapshot.files > 0 then
     local current_path = state.file and state.file.path
     for index, file in ipairs(snapshot.files) do
@@ -384,6 +382,10 @@ local function auto_refresh_if_safe(snapshot)
       end
     end
   end
+
+  vim.api.nvim_buf_call(state.edit_buf, function()
+    pcall(vim.cmd, "silent! edit!")
+  end)
 
   refresh_diff()
   update_status()
@@ -597,14 +599,16 @@ function M.reset_file()
     return
   end
 
+  local reset_path = state.file.path
+
   if valid_buf(state.edit_buf) then
     vim.api.nvim_buf_call(state.edit_buf, function()
-      vim.cmd("edit!")
+      pcall(vim.cmd, "edit!")
     end)
   end
 
-  refresh_diff()
-  notify("Reset " .. state.file.path)
+  M.reload()
+  notify("Reset " .. reset_path)
 end
 
 local function setup_mappings(buf)
@@ -787,8 +791,6 @@ function M.reload()
       return
     end
   end
-
-  pcall(vim.cmd, "checktime")
 
   local new_source, err = resolve_source(state.args)
   if not new_source then
