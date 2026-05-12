@@ -6,6 +6,10 @@ function M.setup(opts)
   config.setup(opts)
 end
 
+function M.config()
+  return config.options
+end
+
 function M.open(args)
   require("diffscope.ui").open(args or {})
 end
