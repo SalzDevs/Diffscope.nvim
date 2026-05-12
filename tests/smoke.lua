@@ -14,8 +14,6 @@ vim.fn.writefile({ "hello", "diffscope" }, tmp .. "/sample.txt")
 vim.fn.writefile({ "another", "change" }, tmp .. "/another.txt")
 vim.cmd("cd " .. vim.fn.fnameescape(tmp))
 vim.cmd("DiffScope")
-require("diffscope").next_file()
-require("diffscope").prev_file()
 require("diffscope").reload()
 require("diffscope").close()
 

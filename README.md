@@ -83,8 +83,6 @@ Addition counts are highlighted green; deletion counts are highlighted red.
 | Key | Action |
 | --- | --- |
 | `f` | Open changed-files picker with filter, stats, stale/reviewed markers |
-| `]f` / `[f` | Next / previous changed file |
-| `]c` / `[c` | Next / previous diff hunk |
 | `/` | Filter inside the changed-files picker |
 | `d` | Toggle reviewed marker, also works from the file picker |
 | `R` | Reload external changes, also works from the file picker |
@@ -111,13 +109,9 @@ require("diffscope").setup({
   },
   mappings = {
     files = "f",
-    next_file = "]f",
-    prev_file = "[f",
     reload = "R",
     toggle_reviewed = "d",
     picker_filter = "/",
-    next_hunk = "]c",
-    prev_hunk = "[c",
   },
 })
 ```

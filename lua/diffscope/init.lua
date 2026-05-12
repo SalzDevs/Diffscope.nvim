@@ -14,14 +14,6 @@ function M.close()
   require("diffscope.ui").close()
 end
 
-function M.next_file()
-  require("diffscope.ui").next_file()
-end
-
-function M.prev_file()
-  require("diffscope.ui").prev_file()
-end
-
 function M.open_file_picker()
   require("diffscope.ui").open_file_picker()
 end

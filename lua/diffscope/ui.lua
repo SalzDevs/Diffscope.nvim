@@ -577,8 +577,6 @@ local function help_lines()
     "Red background    removed/old lines",
     "",
     "f                changed files picker (● = externally updated)",
-    "]f / [f          next / previous changed file",
-    "]c / [c          next / previous hunk",
     "R                reload external changes (works in picker)",
     "d                toggle reviewed marker",
     "/                filter changed-files picker",
@@ -622,80 +620,6 @@ function M.toggle_help()
   vim.keymap.set("n", "?", M.toggle_help, { buffer = buf, silent = true })
 end
 
-local function goto_hunk(direction)
-  if not state or not state.hunks or #state.hunks == 0 then
-    return
-  end
-
-  local current_win = vim.api.nvim_get_current_win()
-  local on_viewer = current_win == state.viewer_win
-  local cursor_line = vim.api.nvim_win_get_cursor(current_win)[1]
-  local target = nil
-
-  if on_viewer then
-    if direction > 0 then
-      for _, hunk in ipairs(state.hunks) do
-        if hunk.viewer_line > cursor_line then
-          target = hunk
-          break
-        end
-      end
-      target = target or state.hunks[1]
-    else
-      for index = #state.hunks, 1, -1 do
-        if state.hunks[index].viewer_line < cursor_line then
-          target = state.hunks[index]
-          break
-        end
-      end
-      target = target or state.hunks[#state.hunks]
-    end
-  else
-    if direction > 0 then
-      for _, hunk in ipairs(state.hunks) do
-        if hunk.new_start > cursor_line then
-          target = hunk
-          break
-        end
-      end
-      target = target or state.hunks[1]
-    else
-      for index = #state.hunks, 1, -1 do
-        if state.hunks[index].new_start < cursor_line then
-          target = state.hunks[index]
-          break
-        end
-      end
-      target = target or state.hunks[#state.hunks]
-    end
-  end
-
-  if not target then
-    return
-  end
-
-  if valid_win(state.viewer_win) then
-    vim.api.nvim_win_set_cursor(state.viewer_win, { target.viewer_line, 0 })
-  end
-
-  if valid_win(state.edit_win) then
-    local edit_line_count = vim.api.nvim_buf_line_count(state.edit_buf)
-    local edit_line = math.min(math.max(target.new_start, 1), edit_line_count)
-    vim.api.nvim_win_set_cursor(state.edit_win, { edit_line, 0 })
-  end
-
-  if valid_win(current_win) then
-    vim.api.nvim_set_current_win(current_win)
-  end
-end
-
-function M.next_hunk()
-  goto_hunk(1)
-end
-
-function M.prev_hunk()
-  goto_hunk(-1)
-end
 
 function M.stage_file()
   if not state or state.source.kind ~= "git" then
@@ -750,11 +674,7 @@ local function setup_mappings(buf)
   local mappings = config.options.mappings
   map(buf, mappings.close, M.close, "Close Diffscope")
   map(buf, mappings.help, M.toggle_help, "Diffscope help")
-  map(buf, mappings.next_hunk, M.next_hunk, "Next hunk")
-  map(buf, mappings.prev_hunk, M.prev_hunk, "Previous hunk")
   map(buf, mappings.files, M.open_file_picker, "Diffscope changed files")
-  map(buf, mappings.next_file, M.next_file, "Next changed file")
-  map(buf, mappings.prev_file, M.prev_file, "Previous changed file")
   map(buf, mappings.reload, M.reload, "Reload external changes")
   map(buf, mappings.toggle_reviewed, M.toggle_reviewed, "Toggle reviewed marker")
   map(buf, mappings.stage_file, M.stage_file, "Stage current file")
@@ -871,30 +791,6 @@ function M.open_file(index)
     vim.api.nvim_set_current_win(state.edit_win)
   end
 
-end
-
-function M.next_file()
-  if not state or not state.files or #state.files == 0 then
-    return
-  end
-
-  local next_index = state.file_index + 1
-  if next_index > #state.files then
-    next_index = 1
-  end
-  M.open_file(next_index)
-end
-
-function M.prev_file()
-  if not state or not state.files or #state.files == 0 then
-    return
-  end
-
-  local prev_index = state.file_index - 1
-  if prev_index < 1 then
-    prev_index = #state.files
-  end
-  M.open_file(prev_index)
 end
 
 function M.toggle_reviewed()
