@@ -102,27 +102,50 @@ local function file_stat_signature(path)
   return table.concat({ path, tostring(stat.size or 0), mtime }, ":")
 end
 
-local function source_signature(diff_source)
+local function source_snapshot(diff_source)
   if not diff_source then
-    return ""
+    return { signature = "", files = {}, by_path = {} }
   end
 
   local parts = { diff_source.kind or "", diff_source.mode or "", diff_source.root or "" }
+  local files = diff_source.files or {}
+  local by_path = {}
 
-  if diff_source.kind == "files" then
-    for _, file in ipairs(diff_source.files or {}) do
-      table.insert(parts, file_stat_signature(file.left))
-      table.insert(parts, file_stat_signature(file.right))
-    end
-  elseif diff_source.kind == "git" then
-    local files = git.changed_files(diff_source.root, diff_source.mode)
-    for _, file in ipairs(files or {}) do
-      table.insert(parts, table.concat({ file.status or "", file.path or "" }, ":"))
-      table.insert(parts, file_stat_signature(diff_source.root .. "/" .. file.path))
-    end
+  if diff_source.kind == "git" then
+    files = git.changed_files(diff_source.root, diff_source.mode)
   end
 
-  return table.concat(parts, "\n")
+  for _, file in ipairs(files or {}) do
+    local key = file.path
+    local signature
+
+    if diff_source.kind == "files" then
+      signature = table.concat({ file_stat_signature(file.left), file_stat_signature(file.right) }, "\n")
+    else
+      signature = table.concat({ file.status or "", file.path or "", file_stat_signature(diff_source.root .. "/" .. file.path) }, ":")
+    end
+
+    table.insert(parts, signature)
+    by_path[key] = signature
+  end
+
+  return {
+    signature = table.concat(parts, "\n"),
+    files = files,
+    by_path = by_path,
+  }
+end
+
+local function update_snapshot()
+  if not state then
+    return
+  end
+
+  local snapshot = source_snapshot(state.source)
+  state.snapshot = snapshot.signature
+  state.snapshot_files = snapshot.by_path
+  state.stale_files = {}
+  state.stale = false
 end
 
 local function open_edit_buffer(path)
@@ -290,27 +313,80 @@ local function tune_viewer_window(win, edit_win, _label)
 end
 
 update_status = function()
-  if not state or not valid_win(state.viewer_win) then
+  if not state then
     return
   end
 
-  if state.stale then
-    vim.wo[state.viewer_win].winbar = " Diffscope: external changes detected — press R to reload "
-  elseif valid_win(state.edit_win) then
-    vim.wo[state.viewer_win].winbar = vim.wo[state.edit_win].winbar or ""
-  else
-    vim.wo[state.viewer_win].winbar = ""
+  local file = state.file and file_label(state.file) or ""
+  local count = state.files and #state.files or 0
+  local index = state.file_index or 0
+  local badge = state.stale and "  [STALE: press R]" or ""
+  local status = string.format("Diffscope %d/%d  %s%s", index, count, file, badge)
+
+  if valid_win(state.viewer_win) then
+    vim.wo[state.viewer_win].winbar = " VIEW  " .. status
+  end
+
+  if valid_win(state.edit_win) then
+    vim.wo[state.edit_win].winbar = " EDIT  " .. status
   end
 end
 
-local function mark_stale()
-  if not state or state.stale then
+local function changed_paths(previous, current)
+  local changed = {}
+
+  for path, signature in pairs(current or {}) do
+    if previous[path] ~= signature then
+      changed[path] = true
+    end
+  end
+
+  for path in pairs(previous or {}) do
+    if current[path] == nil then
+      changed[path] = true
+    end
+  end
+
+  return changed
+end
+
+local function mark_stale(snapshot)
+  if not state then
     return
   end
 
   state.stale = true
+  state.stale_files = changed_paths(state.snapshot_files or {}, snapshot and snapshot.by_path or {})
   update_status()
-  notify("External changes detected. Press R in Diffscope to reload.", vim.log.levels.WARN)
+
+  local now = vim.loop.hrtime()
+  if not state.last_stale_notify or now - state.last_stale_notify > 10000000000 then
+    notify("External changes detected. Press R in Diffscope to reload.", vim.log.levels.WARN)
+    state.last_stale_notify = now
+  end
+end
+
+local function auto_refresh_if_safe(snapshot)
+  if not state or not snapshot or not valid_buf(state.edit_buf) or vim.bo[state.edit_buf].modified then
+    return
+  end
+
+  pcall(vim.cmd, "checktime")
+
+  if snapshot.files and #snapshot.files > 0 then
+    local current_path = state.file and state.file.path
+    for index, file in ipairs(snapshot.files) do
+      if file.path == current_path then
+        state.files = snapshot.files
+        state.file_index = index
+        state.file = file
+        break
+      end
+    end
+  end
+
+  refresh_diff()
+  update_status()
 end
 
 local function check_external_changes()
@@ -324,9 +400,10 @@ local function check_external_changes()
   end
   state.last_external_check = now
 
-  local signature = source_signature(state.source)
-  if signature ~= state.snapshot then
-    mark_stale()
+  local snapshot = source_snapshot(state.source)
+  if snapshot.signature ~= state.snapshot then
+    mark_stale(snapshot)
+    auto_refresh_if_safe(snapshot)
   end
 end
 
@@ -364,10 +441,10 @@ local function help_lines()
     "Green background  added/new lines",
     "Red background    removed/old lines",
     "",
-    "f                changed files picker",
+    "f                changed files picker (● = externally updated)",
     "]f / [f          next / previous changed file",
     "]c / [c          next / previous hunk",
-    "R                reload external changes",
+    "R                reload external changes (works in picker)",
     "s                write and stage this file",
     "r                reset this file, with confirmation",
     "q                close the diff viewer",
@@ -554,8 +631,7 @@ local function install_write_autocmd()
     buffer = state.edit_buf,
     callback = function()
       refresh_diff()
-      state.snapshot = source_signature(state.source)
-      state.stale = false
+      update_snapshot()
       update_status()
     end,
     desc = "Refresh Diffscope diff viewer after write",
@@ -646,8 +722,7 @@ function M.open_file(index)
   setup_mappings(edit_buf)
   install_write_autocmd()
   refresh_diff()
-  state.snapshot = source_signature(state.source)
-  state.stale = false
+  update_snapshot()
   update_status()
 
   if valid_win(state.edit_win) then
@@ -760,8 +835,7 @@ function M.reload()
   install_write_autocmd()
   refresh_diff()
 
-  state.snapshot = source_signature(state.source)
-  state.stale = false
+  update_snapshot()
   update_status()
 
   if valid_win(state.edit_win) then
@@ -783,8 +857,9 @@ function M.open_file_picker()
 
   local lines = {}
   for index, file in ipairs(state.files) do
-    local prefix = index == state.file_index and "➜ " or "  "
-    table.insert(lines, prefix .. file_label(file))
+    local current = index == state.file_index and "➜" or " "
+    local stale = state.stale_files and state.stale_files[file.path] and "●" or " "
+    table.insert(lines, string.format("%s%s %s", current, stale, file_label(file)))
   end
 
   local buf = create_diff_viewer("Diffscope://files", lines, "")
@@ -808,6 +883,7 @@ function M.open_file_picker()
   vim.api.nvim_win_set_cursor(state.picker_win, { state.file_index, 0 })
   vim.keymap.set("n", "q", close_picker, { buffer = buf, silent = true, nowait = true })
   vim.keymap.set("n", "<Esc>", close_picker, { buffer = buf, silent = true, nowait = true })
+  vim.keymap.set("n", config.options.mappings.reload, M.reload, { buffer = buf, silent = true, nowait = true })
   vim.keymap.set("n", "<CR>", function()
     local selected = vim.api.nvim_win_get_cursor(state.picker_win)[1]
     M.open_file(selected)
@@ -928,8 +1004,7 @@ function M.open(args)
   setup_mappings(edit_buf)
 
   install_write_autocmd()
-  state.snapshot = source_signature(state.source)
-  state.stale = false
+  update_snapshot()
   install_external_watchers()
   update_status()
 

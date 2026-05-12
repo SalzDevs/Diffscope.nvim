@@ -64,7 +64,8 @@ f       Open changed-files picker.
 [c      Jump to the previous hunk.
 
                                                         *diffscope-mappings-reload*
-R       Reload external changes detected while Diffscope is open.
+R       Reload external changes detected while Diffscope is open. Also works
+        from the changed-files picker.
 
                                                         *diffscope-mappings-stage*
 s       Write and stage the current file.
@@ -108,8 +109,10 @@ is built into Diffscope through a small changed-files picker and next/previous
 file mappings, so the workflow does not depend on external file explorers.
 
 When an agent or another process changes files while Diffscope is open,
-Diffscope marks the view as stale and prompts the user to press R. Reloading
-refreshes the changed-file list and the current diff without silently
+Diffscope marks both panes as stale and prompts the user to press R. The
+changed-files picker marks externally updated files with ●. If the editable
+buffer has no unsaved edits, Diffscope also auto-refreshes the left code view.
+Reloading refreshes the changed-file list and the current diff without silently
 overwriting unsaved user edits.
 
 ==============================================================================
