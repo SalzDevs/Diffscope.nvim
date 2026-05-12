@@ -312,23 +312,48 @@ local function tune_viewer_window(win, edit_win, _label)
   update_status()
 end
 
+local function hunk_count()
+  return state and state.hunks and #state.hunks or 0
+end
+
+local function current_file_summary()
+  if not state or not state.file then
+    return "No file"
+  end
+
+  return string.format("%s %s", status_label(state.file), state.file.path)
+end
+
+local function status_text(role)
+  local index = state.file_index or 0
+  local count = state.files and #state.files or 0
+  local hunks = hunk_count()
+  local modified = valid_buf(state.edit_buf) and vim.bo[state.edit_buf].modified and " [+]" or ""
+  local stale = state.stale and "  STALE:R" or ""
+
+  return table.concat({
+    "Diffscope",
+    role,
+    string.format("%d/%d", index, count),
+    current_file_summary() .. modified,
+    string.format("%d hunks", hunks),
+    "f files",
+    "R reload",
+    "q close" .. stale,
+  }, "  ")
+end
+
 update_status = function()
   if not state then
     return
   end
 
-  local file = state.file and file_label(state.file) or ""
-  local count = state.files and #state.files or 0
-  local index = state.file_index or 0
-  local badge = state.stale and "  [STALE: press R]" or ""
-  local status = string.format("Diffscope %d/%d  %s%s", index, count, file, badge)
-
   if valid_win(state.viewer_win) then
-    vim.wo[state.viewer_win].winbar = " VIEW  " .. status
+    vim.wo[state.viewer_win].winbar = status_text("VIEW")
   end
 
   if valid_win(state.edit_win) then
-    vim.wo[state.edit_win].winbar = " EDIT  " .. status
+    vim.wo[state.edit_win].winbar = status_text("EDIT")
   end
 end
 
@@ -631,14 +656,16 @@ local function install_write_autocmd()
     state.autocmd = nil
   end
 
-  state.autocmd = vim.api.nvim_create_autocmd("BufWritePost", {
+  state.autocmd = vim.api.nvim_create_autocmd({ "BufWritePost", "TextChanged", "TextChangedI" }, {
     buffer = state.edit_buf,
-    callback = function()
-      refresh_diff()
-      update_snapshot()
+    callback = function(event)
+      if event.event == "BufWritePost" then
+        refresh_diff()
+        update_snapshot()
+      end
       update_status()
     end,
-    desc = "Refresh Diffscope diff viewer after write",
+    desc = "Refresh Diffscope status and diff viewer",
   })
 end
 
