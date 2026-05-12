@@ -16,6 +16,7 @@ vim.cmd("cd " .. vim.fn.fnameescape(tmp))
 vim.cmd("DiffScope")
 require("diffscope").next_file()
 require("diffscope").prev_file()
+require("diffscope").reload()
 require("diffscope").close()
 
 vim.fn.delete(tmp, "rf")

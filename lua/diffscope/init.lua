@@ -26,4 +26,8 @@ function M.open_file_picker()
   require("diffscope.ui").open_file_picker()
 end
 
+function M.reload()
+  require("diffscope.ui").reload()
+end
+
 return M

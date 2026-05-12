@@ -13,6 +13,7 @@ M.defaults = {
     files = "f",
     next_file = "]f",
     prev_file = "[f",
+    reload = "R",
     stage_file = "s",
     reset_file = "r",
   },

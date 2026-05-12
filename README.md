@@ -64,6 +64,8 @@ Compares two files directly. The left pane is the read-only diff code view; the 
 
 The right pane is not a preview buffer. It is the actual file, so normal edits and `:write` work as expected. The left pane refreshes after writes. Diffscope owns its review tab, so it does not depend on external file explorers.
 
+If an agent or another process changes files while Diffscope is open, Diffscope marks the view as stale and asks you to press `R` to reload safely.
+
 ## Default mappings
 
 | Key | Action |
@@ -71,6 +73,7 @@ The right pane is not a preview buffer. It is the actual file, so normal edits a
 | `f` | Open changed-files picker |
 | `]f` / `[f` | Next / previous changed file |
 | `]c` / `[c` | Next / previous diff hunk |
+| `R` | Reload external changes |
 | `s` | Write and stage the current file |
 | `r` | Reset current file, with confirmation |
 | `?` | Toggle help |
@@ -96,6 +99,7 @@ require("diffscope").setup({
     files = "f",
     next_file = "]f",
     prev_file = "[f",
+    reload = "R",
     next_hunk = "]c",
     prev_hunk = "[c",
   },

@@ -7,6 +7,7 @@ local M = {}
 
 local state = nil
 local namespace = vim.api.nvim_create_namespace("diffscope")
+local update_status
 
 local function notify(message, level)
   vim.notify(message, level or vim.log.levels.INFO, { title = "Diffscope" })
@@ -89,6 +90,39 @@ local function edit_path_for(diff_source, file)
   end
 
   return diff_source.root .. "/" .. file.path, file.path
+end
+
+local function file_stat_signature(path)
+  local loop = vim.uv or vim.loop
+  local stat = loop.fs_stat(path)
+  if not stat then
+    return path .. ":missing"
+  end
+  local mtime = stat.mtime and (stat.mtime.sec .. ":" .. stat.mtime.nsec) or "0:0"
+  return table.concat({ path, tostring(stat.size or 0), mtime }, ":")
+end
+
+local function source_signature(diff_source)
+  if not diff_source then
+    return ""
+  end
+
+  local parts = { diff_source.kind or "", diff_source.mode or "", diff_source.root or "" }
+
+  if diff_source.kind == "files" then
+    for _, file in ipairs(diff_source.files or {}) do
+      table.insert(parts, file_stat_signature(file.left))
+      table.insert(parts, file_stat_signature(file.right))
+    end
+  elseif diff_source.kind == "git" then
+    local files = git.changed_files(diff_source.root, diff_source.mode)
+    for _, file in ipairs(files or {}) do
+      table.insert(parts, table.concat({ file.status or "", file.path or "" }, ":"))
+      table.insert(parts, file_stat_signature(diff_source.root .. "/" .. file.path))
+    end
+  end
+
+  return table.concat(parts, "\n")
 end
 
 local function open_edit_buffer(path)
@@ -252,7 +286,48 @@ local function tune_viewer_window(win, edit_win, _label)
   vim.wo[win].relativenumber = valid_win(edit_win) and vim.wo[edit_win].relativenumber or false
   vim.wo[win].cursorline = valid_win(edit_win) and vim.wo[edit_win].cursorline or true
   vim.wo[win].signcolumn = valid_win(edit_win) and vim.wo[edit_win].signcolumn or "yes"
-  vim.wo[win].winbar = valid_win(edit_win) and vim.wo[edit_win].winbar or ""
+  update_status()
+end
+
+update_status = function()
+  if not state or not valid_win(state.viewer_win) then
+    return
+  end
+
+  if state.stale then
+    vim.wo[state.viewer_win].winbar = " Diffscope: external changes detected — press R to reload "
+  elseif valid_win(state.edit_win) then
+    vim.wo[state.viewer_win].winbar = vim.wo[state.edit_win].winbar or ""
+  else
+    vim.wo[state.viewer_win].winbar = ""
+  end
+end
+
+local function mark_stale()
+  if not state or state.stale then
+    return
+  end
+
+  state.stale = true
+  update_status()
+  notify("External changes detected. Press R in Diffscope to reload.", vim.log.levels.WARN)
+end
+
+local function check_external_changes()
+  if not state or not state.snapshot then
+    return
+  end
+
+  local now = vim.loop.hrtime()
+  if state.last_external_check and now - state.last_external_check < 500000000 then
+    return
+  end
+  state.last_external_check = now
+
+  local signature = source_signature(state.source)
+  if signature ~= state.snapshot then
+    mark_stale()
+  end
 end
 
 local function map(buf, lhs, rhs, desc)
@@ -292,6 +367,7 @@ local function help_lines()
     "f                changed files picker",
     "]f / [f          next / previous changed file",
     "]c / [c          next / previous hunk",
+    "R                reload external changes",
     "s                write and stage this file",
     "r                reset this file, with confirmation",
     "q                close the diff viewer",
@@ -463,6 +539,7 @@ local function setup_mappings(buf)
   map(buf, mappings.files, M.open_file_picker, "Diffscope changed files")
   map(buf, mappings.next_file, M.next_file, "Next changed file")
   map(buf, mappings.prev_file, M.prev_file, "Previous changed file")
+  map(buf, mappings.reload, M.reload, "Reload external changes")
   map(buf, mappings.stage_file, M.stage_file, "Stage current file")
   map(buf, mappings.reset_file, M.reset_file, "Reset current file")
 end
@@ -477,8 +554,26 @@ local function install_write_autocmd()
     buffer = state.edit_buf,
     callback = function()
       refresh_diff()
+      state.snapshot = source_signature(state.source)
+      state.stale = false
+      update_status()
     end,
     desc = "Refresh Diffscope diff viewer after write",
+  })
+end
+
+local function install_external_watchers()
+  if state.watch_group then
+    pcall(vim.api.nvim_del_augroup_by_id, state.watch_group)
+  end
+
+  state.watch_group = vim.api.nvim_create_augroup("DiffscopeExternalChanges" .. tostring(state.tab), { clear = true })
+  vim.api.nvim_create_autocmd({ "FocusGained", "BufEnter", "CursorHold", "FileChangedShellPost" }, {
+    group = state.watch_group,
+    callback = function()
+      check_external_changes()
+    end,
+    desc = "Detect external changes while Diffscope is open",
   })
 end
 
@@ -551,6 +646,9 @@ function M.open_file(index)
   setup_mappings(edit_buf)
   install_write_autocmd()
   refresh_diff()
+  state.snapshot = source_signature(state.source)
+  state.stale = false
+  update_status()
 
   if valid_win(state.edit_win) then
     vim.api.nvim_set_current_win(state.edit_win)
@@ -581,6 +679,96 @@ function M.prev_file()
     prev_index = #state.files
   end
   M.open_file(prev_index)
+end
+
+local function index_for_path(files, path)
+  for index, file in ipairs(files or {}) do
+    if file.path == path then
+      return index
+    end
+  end
+  return nil
+end
+
+function M.reload()
+  if not state then
+    return
+  end
+
+  local keep_unsaved = false
+  if valid_buf(state.edit_buf) and vim.bo[state.edit_buf].modified then
+    local answer = vim.fn.confirm(
+      "Current buffer has unsaved edits. Reload external changes?",
+      "&Reload disk\n&Keep mine\n&Cancel",
+      3
+    )
+    if answer == 1 then
+      vim.api.nvim_buf_call(state.edit_buf, function()
+        vim.cmd("edit!")
+      end)
+    elseif answer == 2 then
+      keep_unsaved = true
+    else
+      return
+    end
+  end
+
+  pcall(vim.cmd, "checktime")
+
+  local new_source, err = resolve_source(state.args)
+  if not new_source then
+    notify(err, vim.log.levels.ERROR)
+    return
+  end
+
+  if #new_source.files == 0 then
+    notify("No changed files after reload")
+    M.close()
+    return
+  end
+
+  local current_path = state.file and state.file.path
+  local next_index = index_for_path(new_source.files, current_path) or 1
+
+  state.source = new_source
+  state.files = new_source.files
+  state.file_index = next_index
+  state.file = new_source.files[next_index]
+
+  close_picker()
+
+  if valid_win(state.edit_win) then
+    vim.api.nvim_set_current_win(state.edit_win)
+  end
+
+  local edit_path, edit_label = edit_path_for(state.source, state.file)
+  local edit_buf = open_edit_buffer(edit_path)
+
+  if not keep_unsaved and valid_buf(edit_buf) and not vim.bo[edit_buf].modified then
+    vim.api.nvim_buf_call(edit_buf, function()
+      pcall(vim.cmd, "edit!")
+    end)
+  end
+
+  state.edit_buf = edit_buf
+  state.edit_win = vim.api.nvim_get_current_win()
+
+  vim.bo[state.viewer_buf].filetype = vim.bo[edit_buf].filetype
+  vim.api.nvim_buf_set_name(state.viewer_buf, "Diffscope://diff/" .. edit_label)
+  tune_viewer_window(state.viewer_win, state.edit_win, edit_label)
+  setup_mappings(edit_buf)
+  install_write_autocmd()
+  refresh_diff()
+
+  state.snapshot = source_signature(state.source)
+  state.stale = false
+  update_status()
+
+  if valid_win(state.edit_win) then
+    vim.api.nvim_set_current_win(state.edit_win)
+  end
+
+  notify("Reloaded Diffscope changes")
 end
 
 function M.open_file_picker()
@@ -636,6 +824,10 @@ function M.close()
 
   if old_state.autocmd then
     pcall(vim.api.nvim_del_autocmd, old_state.autocmd)
+  end
+
+  if old_state.watch_group then
+    pcall(vim.api.nvim_del_augroup_by_id, old_state.watch_group)
   end
 
   if valid_win(old_state.help_win) then
@@ -736,6 +928,10 @@ function M.open(args)
   setup_mappings(edit_buf)
 
   install_write_autocmd()
+  state.snapshot = source_signature(state.source)
+  state.stale = false
+  install_external_watchers()
+  update_status()
 
   vim.api.nvim_set_current_win(edit_win)
   notify("Diff viewer opened for " .. edit_label)
