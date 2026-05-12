@@ -1,5 +1,6 @@
 local test_files = {
   "tests.e2e.config_test",
+  "tests.e2e.git_source_test",
 }
 
 local failures = {}
