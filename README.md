@@ -64,7 +64,9 @@ Compares two files directly. The left pane is the read-only diff code view; the 
 
 The right pane is not a preview buffer. It is the actual file, so normal edits and `:write` work as expected. The left pane refreshes after writes. Diffscope owns its review tab, so it does not depend on external file explorers.
 
-If an agent or another process changes files while Diffscope is open, Diffscope marks both panes as stale and asks you to press `R` to reload safely. When your editor buffer has no unsaved edits, the left pane auto-refreshes its code view; `R` still performs a full safe reload of the changed-file list.
+If an agent or another process changes files while Diffscope is open, Diffscope marks both panes as stale (`stale (R)`). Press `R` to run a safe reload. When your editor buffer has no unsaved edits, the left pane auto-refreshes its code view; `R` still performs a full safe reload of the changed-file list.
+
+Routine operations are intentionally quiet (open/switch/reload/stage). Notifications are reserved for warnings and errors.
 
 The changed-files picker shows review progress, additions/deletions, and stale/reviewed files:
 

@@ -116,11 +116,14 @@ markers. Addition counts are highlighted green; deletion counts are highlighted
 red.
 
 When an agent or another process changes files while Diffscope is open,
-Diffscope marks both panes as stale and prompts the user to press R. The
-changed-files picker marks externally updated files with ●. If the editable
-buffer has no unsaved edits, Diffscope also auto-refreshes the left code view.
-Reloading refreshes the changed-file list and the current diff without silently
+Diffscope marks both panes as stale (stale (R) in winbar). The changed-files
+picker marks externally updated files with ●. If the editable buffer has no
+unsaved edits, Diffscope also auto-refreshes the left code view. Reloading
+refreshes the changed-file list and the current diff without silently
 overwriting unsaved user edits.
+
+Routine operations are quiet by default (open/switch/reload/stage). Messages
+are primarily used for warnings and errors.
 
 ==============================================================================
 vim:tw=78:ts=8:noet:ft=help:norl:
