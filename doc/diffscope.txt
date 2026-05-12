@@ -58,6 +58,8 @@ q       Close the diff viewer.
 f       Open changed-files picker.
 ]f      Open next changed file.
 [f      Open previous changed file.
+/       Filter the changed-files picker.
+d       Toggle reviewed marker for the current/selected file.
 
                                                         *diffscope-mappings-hunks*
 ]c      Jump to the next hunk.
@@ -91,6 +93,8 @@ Example: >lua
       next_file = "]f",
       prev_file = "[f",
       reload = "R",
+      toggle_reviewed = "d",
+      picker_filter = "/",
       stage_file = "s",
       reset_file = "r",
     },
@@ -105,8 +109,10 @@ pane should feel like a normal read-only code buffer with diff colors. The
 right pane is the user's real file buffer.
 
 The left pane refreshes after the editable buffer is written. File navigation
-is built into Diffscope through a small changed-files picker and next/previous
-file mappings, so the workflow does not depend on external file explorers.
+is built into Diffscope through a changed-files picker and next/previous file
+mappings, so the workflow does not depend on external file explorers. The
+picker shows review progress, additions/deletions, stale markers, reviewed
+markers, and an interactive filter.
 
 When an agent or another process changes files while Diffscope is open,
 Diffscope marks both panes as stale and prompts the user to press R. The

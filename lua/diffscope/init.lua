@@ -30,4 +30,12 @@ function M.reload()
   require("diffscope.ui").reload()
 end
 
+function M.toggle_reviewed()
+  require("diffscope.ui").toggle_reviewed()
+end
+
+function M.filter_picker()
+  require("diffscope.ui").filter_picker()
+end
+
 return M

@@ -14,6 +14,8 @@ M.defaults = {
     next_file = "]f",
     prev_file = "[f",
     reload = "R",
+    toggle_reviewed = "d",
+    picker_filter = "/",
     stage_file = "s",
     reset_file = "r",
   },

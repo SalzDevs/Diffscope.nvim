@@ -8,6 +8,7 @@ local M = {}
 local state = nil
 local namespace = vim.api.nvim_create_namespace("diffscope")
 local update_status
+local render_picker
 
 local function notify(message, level)
   vim.notify(message, level or vim.log.levels.INFO, { title = "Diffscope" })
@@ -26,9 +27,12 @@ local function set_lines(buf, lines)
     return
   end
 
+  local readonly = vim.bo[buf].readonly
+  vim.bo[buf].readonly = false
   vim.bo[buf].modifiable = true
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
   vim.bo[buf].modifiable = false
+  vim.bo[buf].readonly = readonly
 end
 
 local function create_diff_viewer(name, lines, filetype)
@@ -82,6 +86,10 @@ end
 
 local function file_label(file)
   return string.format("%s  %s", status_label(file), file.path)
+end
+
+local function file_key(file)
+  return file and (file.path or file.right or file.left) or ""
 end
 
 local function edit_path_for(diff_source, file)
@@ -177,6 +185,48 @@ local function diff_lines_for(diff_source, file)
     return { "No working tree diff for " .. file.path .. ".", "", "Save the file and run :DiffScope again." }
   end
   return lines
+end
+
+local function diff_stats_for(file)
+  if not state or not state.source or not file then
+    return { additions = 0, deletions = 0 }
+  end
+
+  local key = file_key(file)
+  state.file_stats = state.file_stats or {}
+  if state.file_stats[key] then
+    return state.file_stats[key]
+  end
+
+  local additions = 0
+  local deletions = 0
+  for _, line in ipairs(diff_lines_for(state.source, file)) do
+    if line:sub(1, 1) == "+" and not line:match("^%+%+%+") then
+      additions = additions + 1
+    elseif line:sub(1, 1) == "-" and not line:match("^%-%-%-") then
+      deletions = deletions + 1
+    end
+  end
+
+  local stats = { additions = additions, deletions = deletions }
+  state.file_stats[key] = stats
+  return stats
+end
+
+local function picker_file_label(file, index)
+  local current = index == state.file_index and "➜" or " "
+  local stale = state.stale_files and state.stale_files[file_key(file)] and "●" or " "
+  local reviewed = state.reviewed and state.reviewed[file_key(file)] and "✓" or " "
+  local stats = diff_stats_for(file)
+  return string.format(
+    "%s%s%s %s  +%d -%d",
+    current,
+    stale,
+    reviewed,
+    file_label(file),
+    stats.additions,
+    stats.deletions
+  )
 end
 
 local function current_lines(buf)
@@ -291,6 +341,10 @@ local function refresh_diff()
     return
   end
 
+  if state.file_stats and state.file then
+    state.file_stats[file_key(state.file)] = nil
+  end
+
   local raw_lines = diff_lines_for(state.source, state.file)
   local rendered_lines, line_kinds, hunks = render_code_diff(raw_lines, current_lines(state.edit_buf))
   state.hunks = hunks
@@ -328,6 +382,12 @@ local function status_text(role)
   local index = state.file_index or 0
   local count = state.files and #state.files or 0
   local hunks = hunk_count()
+  local reviewed_count = 0
+  for _, reviewed in pairs(state.reviewed or {}) do
+    if reviewed then
+      reviewed_count = reviewed_count + 1
+    end
+  end
   local modified = valid_buf(state.edit_buf) and vim.bo[state.edit_buf].modified and " [+]" or ""
   local stale = state.stale and "  STALE:R" or ""
 
@@ -337,6 +397,7 @@ local function status_text(role)
     string.format("%d/%d", index, count),
     current_file_summary() .. modified,
     string.format("%d hunks", hunks),
+    string.format("%d reviewed", reviewed_count),
     "f files",
     "R reload",
     "q close" .. stale,
@@ -382,6 +443,7 @@ local function mark_stale(snapshot)
 
   state.stale = true
   state.stale_files = changed_paths(state.snapshot_files or {}, snapshot and snapshot.by_path or {})
+  state.file_stats = {}
   update_status()
 
   local now = vim.loop.hrtime()
@@ -472,6 +534,8 @@ local function help_lines()
     "]f / [f          next / previous changed file",
     "]c / [c          next / previous hunk",
     "R                reload external changes (works in picker)",
+    "d                toggle reviewed marker",
+    "/                filter changed-files picker",
     "s                write and stage this file",
     "r                reset this file, with confirmation",
     "q                close the diff viewer",
@@ -646,6 +710,7 @@ local function setup_mappings(buf)
   map(buf, mappings.next_file, M.next_file, "Next changed file")
   map(buf, mappings.prev_file, M.prev_file, "Previous changed file")
   map(buf, mappings.reload, M.reload, "Reload external changes")
+  map(buf, mappings.toggle_reviewed, M.toggle_reviewed, "Toggle reviewed marker")
   map(buf, mappings.stage_file, M.stage_file, "Stage current file")
   map(buf, mappings.reset_file, M.reset_file, "Reset current file")
 end
@@ -787,6 +852,18 @@ function M.prev_file()
   M.open_file(prev_index)
 end
 
+function M.toggle_reviewed()
+  if not state or not state.file then
+    return
+  end
+
+  local key = file_key(state.file)
+  state.reviewed = state.reviewed or {}
+  state.reviewed[key] = not state.reviewed[key]
+  update_status()
+  render_picker()
+end
+
 local function index_for_path(files, path)
   for index, file in ipairs(files or {}) do
     if file.path == path then
@@ -836,6 +913,7 @@ function M.reload()
 
   state.source = new_source
   state.files = new_source.files
+  state.file_stats = {}
   state.file_index = next_index
   state.file = new_source.files[next_index]
 
@@ -874,6 +952,82 @@ function M.reload()
   notify("Reloaded Diffscope changes")
 end
 
+local picker_header_lines = 3
+
+local function filtered_file_indices()
+  local indices = {}
+  local filter = vim.trim(state.picker_filter or ""):lower()
+
+  for index, file in ipairs(state.files or {}) do
+    local label = file_label(file):lower()
+    if filter == "" or label:find(filter, 1, true) then
+      table.insert(indices, index)
+    end
+  end
+
+  return indices
+end
+
+render_picker = function()
+  if not state or not valid_buf(state.picker_buf) then
+    return
+  end
+
+  local indices = filtered_file_indices()
+  state.picker_indices = indices
+
+  local reviewed_count = 0
+  for _, reviewed in pairs(state.reviewed or {}) do
+    if reviewed then
+      reviewed_count = reviewed_count + 1
+    end
+  end
+
+  local lines = {
+    string.format("%d/%d changed files  %d reviewed", state.file_index or 0, #(state.files or {}), reviewed_count),
+    string.format("filter: %s", state.picker_filter and state.picker_filter ~= "" and state.picker_filter or "<none>"),
+    "keys: <CR> open  d reviewed  / filter  R reload  q close",
+  }
+
+  if #indices == 0 then
+    table.insert(lines, "  No matching files")
+  else
+    for _, file_index in ipairs(indices) do
+      table.insert(lines, picker_file_label(state.files[file_index], file_index))
+    end
+  end
+
+  set_lines(state.picker_buf, lines)
+
+  if valid_win(state.picker_win) then
+    local cursor = vim.api.nvim_win_get_cursor(state.picker_win)[1]
+    local max_line = math.max(picker_header_lines + 1, #lines)
+    if cursor <= picker_header_lines then
+      cursor = picker_header_lines + 1
+    end
+    vim.api.nvim_win_set_cursor(state.picker_win, { math.min(cursor, max_line), 0 })
+  end
+end
+
+local function picker_selected_index()
+  if not state or not valid_win(state.picker_win) then
+    return nil
+  end
+
+  local line = vim.api.nvim_win_get_cursor(state.picker_win)[1]
+  return state.picker_indices and state.picker_indices[line - picker_header_lines]
+end
+
+function M.filter_picker()
+  if not state then
+    return
+  end
+
+  local filter = vim.fn.input("Diffscope filter: ", state.picker_filter or "")
+  state.picker_filter = filter
+  render_picker()
+end
+
 function M.open_file_picker()
   if not state or not state.files then
     return
@@ -884,16 +1038,12 @@ function M.open_file_picker()
     return
   end
 
-  local lines = {}
-  for index, file in ipairs(state.files) do
-    local current = index == state.file_index and "➜" or " "
-    local stale = state.stale_files and state.stale_files[file.path] and "●" or " "
-    table.insert(lines, string.format("%s%s %s", current, stale, file_label(file)))
-  end
+  state.picker_filter = state.picker_filter or ""
+  state.picker_indices = {}
 
-  local buf = create_diff_viewer("Diffscope://files", lines, "")
-  local width = math.min(70, math.max(36, math.floor(vim.o.columns * 0.45)))
-  local height = math.min(math.max(#lines, 1), math.max(1, vim.o.lines - 8))
+  local buf = create_diff_viewer("Diffscope://files", {}, "")
+  local width = math.min(90, math.max(52, math.floor(vim.o.columns * 0.55)))
+  local height = math.min(math.max(#state.files + picker_header_lines, 6), math.max(1, vim.o.lines - 8))
 
   state.picker_buf = buf
   state.picker_win = vim.api.nvim_open_win(buf, true, {
@@ -909,13 +1059,34 @@ function M.open_file_picker()
   })
 
   vim.wo[state.picker_win].cursorline = true
-  vim.api.nvim_win_set_cursor(state.picker_win, { state.file_index, 0 })
+  render_picker()
+  vim.api.nvim_win_set_cursor(state.picker_win, { math.min(state.file_index + picker_header_lines, vim.api.nvim_buf_line_count(buf)), 0 })
+
   vim.keymap.set("n", "q", close_picker, { buffer = buf, silent = true, nowait = true })
   vim.keymap.set("n", "<Esc>", close_picker, { buffer = buf, silent = true, nowait = true })
-  vim.keymap.set("n", config.options.mappings.reload, M.reload, { buffer = buf, silent = true, nowait = true })
+  vim.keymap.set("n", config.options.mappings.picker_filter, M.filter_picker, { buffer = buf, silent = true, nowait = true })
+  vim.keymap.set("n", config.options.mappings.reload, function()
+    M.reload()
+    if valid_buf(buf) then
+      render_picker()
+    end
+  end, { buffer = buf, silent = true, nowait = true })
+  vim.keymap.set("n", config.options.mappings.toggle_reviewed, function()
+    local selected = picker_selected_index()
+    if not selected then
+      return
+    end
+    local key = file_key(state.files[selected])
+    state.reviewed = state.reviewed or {}
+    state.reviewed[key] = not state.reviewed[key]
+    update_status()
+    render_picker()
+  end, { buffer = buf, silent = true, nowait = true })
   vim.keymap.set("n", "<CR>", function()
-    local selected = vim.api.nvim_win_get_cursor(state.picker_win)[1]
-    M.open_file(selected)
+    local selected = picker_selected_index()
+    if selected then
+      M.open_file(selected)
+    end
   end, { buffer = buf, silent = true, nowait = true })
 end
 
@@ -1002,6 +1173,8 @@ function M.open(args)
     previous_tab = previous_tab,
     tab = tab,
     hunks = {},
+    reviewed = {},
+    file_stats = {},
     mapped_buffers = {},
   }
 
