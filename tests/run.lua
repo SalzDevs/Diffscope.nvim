@@ -2,6 +2,7 @@ local test_files = {
   "tests.e2e.config_test",
   "tests.e2e.git_source_test",
   "tests.e2e.ui_open_test",
+  "tests.e2e.picker_test",
 }
 
 local failures = {}
