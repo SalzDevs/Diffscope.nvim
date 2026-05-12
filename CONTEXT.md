@@ -16,6 +16,10 @@ _Avoid_: Unified diff, raw diff, patch view
 Context about the review such as file progress, stale state, reviewed state, or line counts.
 _Avoid_: Inline diff headers, patch metadata
 
+**Git Action**:
+A mutating Git operation such as staging, resetting, or checking out files.
+_Avoid_: Review action
+
 **Editable Buffer**:
 The real Neovim file buffer where the user edits the current state of the file.
 _Avoid_: Preview buffer, generated buffer
@@ -36,6 +40,7 @@ _Avoid_: Git repo, diff command
 
 - A **Review Surface** contains one **Code-shaped Diff** and one **Editable Buffer**.
 - **Review Metadata** belongs in the winbar, picker, or help; it does not belong inside the **Code-shaped Diff**.
+- **Git Actions** are outside the core **Review Surface** workflow for now.
 - A **Changed-files Picker** selects which file is shown in the **Review Surface** and may show lightweight **Review Metadata**.
 - A **Stale Review** belongs to an open **Review Surface**.
 - A **Review Surface** is built from one **Change Source**.
@@ -50,5 +55,6 @@ _Avoid_: Git repo, diff command
 - "diff viewer" can mean raw unified diff or **Code-shaped Diff** — resolved: Diffscope's primary view is **Code-shaped Diff**.
 - "file explorer" can imply general project navigation — resolved: Diffscope uses a **Changed-files Picker** only for changed files.
 - "Git status panel" can imply staging/reset workflows inside the picker — resolved: the **Changed-files Picker** is for navigation and lightweight review progress only.
+- "review action" can imply mutating Git state — resolved: **Git Actions** are not part of the core workflow for now.
 - "Git diff" can imply the product is Git-only — resolved: Git is the first **Change Source**, not the product boundary.
 - "metadata in the diff" can add visual noise — resolved: **Code-shaped Diff** shows code only; **Review Metadata** lives outside it.
